@@ -31,7 +31,6 @@ module Network.MPD.Applicative.Internal
     , runCommand
     ) where
 
-import           Control.Applicative
 import           Control.Monad
 import           Data.ByteString.Char8 (ByteString)
 

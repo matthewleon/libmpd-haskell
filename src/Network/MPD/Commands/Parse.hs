@@ -12,7 +12,6 @@ module Network.MPD.Commands.Parse where
 
 import           Network.MPD.Commands.Types
 
-import           Control.Applicative
 import           Control.Monad.Error
 import           Data.Maybe (fromMaybe)
 
