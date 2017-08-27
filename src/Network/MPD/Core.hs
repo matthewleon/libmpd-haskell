@@ -29,6 +29,7 @@ import           Data.Char (isDigit)
 import           Control.Applicative (Applicative(..), (<$>), (<*))
 import qualified Control.Exception as E
 import           Control.Monad (ap, unless)
+import           Control.Monad.Base (MonadBase)
 import           Control.Monad.Error (ErrorT(..), MonadError(..))
 import           Control.Monad.Reader (ReaderT(..), ask)
 import           Control.Monad.State (StateT, MonadIO(..), modify, gets, evalStateT)
@@ -70,7 +71,7 @@ newtype MPD a =
     MPD { runMPD :: ErrorT MPDError
                     (StateT MPDState
                      (ReaderT (Host, Port) IO)) a
-        } deriving (Functor, Monad, MonadIO, MonadError MPDError)
+        } deriving (Functor, Monad, MonadIO, MonadError MPDError, MonadBase IO)
 
 instance Applicative MPD where
     (<*>) = ap
