@@ -20,7 +20,7 @@ To use the library, do:
 
 module Network.MPD (
     -- * Basic data types
-    MonadMPD, MPD, MPDError(..), ACKType(..), Response,
+    MonadMPD, MPD, MPDError(..), ACKType(..),
     Host, Port, Password,
     -- * Connections
     withMPD, withMPD_, withMPDEx,
@@ -31,7 +31,7 @@ module Network.MPD (
     ) where
 
 import           Prelude
-import qualified Control.Exception as E
+import           Control.Exception.Safe (catch, throwString)
 import           Network.MPD.Commands
 import           Network.MPD.Core
 
@@ -48,7 +48,7 @@ import           Data.Maybe (listToMaybe)
 --
 -- > withMPD $ play Nothing
 -- > withMPD $ add_ "tool" >> play Nothing >> currentSong
-withMPD :: MPD a -> IO (Response a)
+withMPD :: MPD a -> IO a
 withMPD = withMPD_ Nothing Nothing
 
 -- | Same as `withMPD`, but takes optional arguments that override MPD_HOST and
@@ -59,12 +59,12 @@ withMPD = withMPD_ Nothing Nothing
 -- arguments are not given.
 withMPD_ :: Maybe String -- ^ optional override for MPD_HOST
          -> Maybe String -- ^ optional override for MPD_PORT
-         -> MPD a -> IO (Response a)
+         -> MPD a -> IO a
 withMPD_ mHost mPort action = do
     settings <- getConnectionSettings mHost mPort
     case settings of
       Right (host, port, pw) -> withMPDEx host port pw action
-      Left err -> (return . Left . Custom) err
+      Left err -> throwString err
 
 getConnectionSettings :: Maybe String -> Maybe String -> IO (Either String (Host, Port, Password))
 getConnectionSettings mHost mPort = do
@@ -81,7 +81,7 @@ getConnectionSettings mHost mPort = do
 
 getEnvDefault :: String -> String -> IO String
 getEnvDefault x dflt =
-    E.catch (getEnv x) (\e -> if isDoesNotExistError e
+    catch (getEnv x) (\e -> if isDoesNotExistError e
                             then return dflt else ioError e)
 
 -- Break a string by character, removing the separator.

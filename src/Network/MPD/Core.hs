@@ -14,7 +14,7 @@ module Network.MPD.Core (
     -- * Classes
     MonadMPD(..),
     -- * Data types
-    MPD, MPDError(..), ACKType(..), Response, Host, Port, Password,
+    MPD, MPDError(..), ACKType(..), Host, Port, Password,
     -- * Running
     withMPDEx,
     -- * Interacting
@@ -27,11 +27,10 @@ import           Network.MPD.Core.Error
 
 import           Data.Char (isDigit)
 import           Control.Applicative (Applicative(..), (<$>), (<*))
-import           Control.Concurrent.STM.TVar (TVar, readTVar, readTVarIO, writeTVar, newTVarIO)
+import           Control.Concurrent.STM.TVar (TVar, readTVarIO, writeTVar, newTVarIO)
 import qualified Control.Exception as E
-import           Control.Exception.Safe (catch, catchAny)
-import           Control.Monad (ap, unless)
-import           Control.Monad.Error (ErrorT(..), MonadError(..))
+import           Control.Exception.Safe (MonadCatch, MonadThrow, catch, catchAny, throw)
+import           Control.Monad (ap, unless, void)
 import           Control.Monad.IO.Class (MonadIO(liftIO))
 import           Control.Monad.Reader (ReaderT(..), ask, asks)
 import           Control.Monad.STM (atomically)
@@ -70,9 +69,8 @@ type Port = Integer
 -- > import Control.Monad.Trans (liftIO)
 
 newtype MPD a =
-    MPD { runMPD :: ErrorT MPDError
-                    (ReaderT MPDEnv IO) a
-        } deriving (Functor, Monad, MonadIO, MonadError MPDError)
+    MPD { runMPD :: ReaderT MPDEnv IO a
+        } deriving (Functor, Monad, MonadIO, MonadCatch, MonadThrow)
 
 instance Applicative MPD where
     (<*>) = ap
@@ -103,25 +101,21 @@ writeEnvTVar accessor val = MPD $ do
   tVar <- asks accessor
   liftIO . atomically $ writeTVar tVar val
 
--- | A response is either an 'MPDError' or some result.
-type Response = Either MPDError
-
 clearHandle :: MPD ()
 clearHandle = MPD $ do
   tmHandle <- envHandle <$> ask
   liftIO . atomically $ writeTVar tmHandle Nothing
 
 -- | The most configurable API for running an MPD action.
-withMPDEx :: Host -> Port -> Password -> MPD a -> IO (Response a)
-withMPDEx host port pw x = withSocketsDo $ do
-    env <- initEnv
-    runReaderT (runErrorT . runMPD $ open >> (x <* close)) env
+withMPDEx :: MonadIO m => Host -> Port -> Password -> MPD a -> m a
+withMPDEx host port pw x = liftIO . withSocketsDo $
+    runReaderT (runMPD $ open >> (x <* close)) =<< initEnv
     where
-    initEnv = do
-      tHandle <- newTVarIO Nothing
-      tPassword <- newTVarIO ""
-      tVersion <- newTVarIO (0, 0, 0)
-      return $ MPDEnv host port tHandle tPassword tVersion
+    initEnv =
+      let tHandle   = newTVarIO Nothing
+          tPassword = newTVarIO pw
+          tVersion  = newTVarIO (0, 0, 0)
+      in MPDEnv host port <$> tHandle <*> tPassword <*> tVersion
 
 mpdOpen :: MPD ()
 mpdOpen = MPD $ do
@@ -146,10 +140,10 @@ mpdOpen = MPD $ do
                 then MPD $ checkVersion $ parseVersion msg
                 else return False
 
-        checkVersion Nothing = throwError $ Custom "Couldn't determine MPD version"
+        checkVersion Nothing = throw $ Custom "Couldn't determine MPD version"
         checkVersion (Just version)
             | version < requiredVersion =
-                throwError $ Custom $ printf
+                throw . Custom $ printf
                     "MPD %s is not supported, upgrade to MPD %s or above!"
                     (formatVersion version) (formatVersion requiredVersion)
             | otherwise = do
@@ -170,7 +164,7 @@ mpdClose =
     readEnvTVar envHandle >>= F.mapM_ (\h -> do
         writeEnvTVar envHandle Nothing
         r <- liftIO $ sendClose h
-        MPD $ F.forM_ r throwError
+        F.forM_ r throw
     )
     where
         sendClose handle =
@@ -182,20 +176,20 @@ mpdClose =
             | otherwise      = (return . Just . ConnectionError) err
 
 mpdSend :: String -> MPD [ByteString]
-mpdSend str = send' `catchError` handler
+mpdSend str = send' `catch` handler
     where
         handler err
           | ConnectionError e <- err, isRetryable e = mpdOpen >> send'
-          | otherwise = throwError err
+          | otherwise = throw err
 
         send' :: MPD [ByteString]
-        send' = maybe (throwError NoMPD) go =<< readEnvTVar envHandle
+        send' = maybe (throw NoMPD) go =<< readEnvTVar envHandle
 
         go handle = (liftIO . tryIOError $ do
             unless (null str) $ B.hPutStrLn handle (UTF8.fromString str) >> hFlush handle
             getLines handle [])
                 >>= either (\err -> clearHandle
-                                 >> throwError (ConnectionError err)) return
+                                 >> throw (ConnectionError err)) return
 
         getLines :: Handle -> [ByteString] -> IO [ByteString]
         getLines handle acc = do
@@ -206,7 +200,7 @@ mpdSend str = send' `catchError` handler
 
 -- | Re-connect and retry for these Exceptions.
 isRetryable :: E.IOException -> Bool
-isRetryable e = or [ isEOFError e, isResourceVanished e ]
+isRetryable e = isEOFError e || isResourceVanished e
 
 -- | Predicate to identify ResourceVanished exceptions.
 -- Note: these are GHC only!
@@ -219,25 +213,24 @@ isResourceVanished e = ioeGetErrorType e == GE.ResourceVanished
 
 -- | Kill the server. Obviously, the connection is then invalid.
 kill :: (MonadMPD m) => m ()
-kill = send "kill" >> return ()
+kill = void $ send "kill"
 
 -- | Send a command to the MPD server and return the result.
-getResponse :: (MonadMPD m) => String -> m [ByteString]
-getResponse cmd = (send cmd >>= parseResponse) `catchError` sendpw
+getResponse :: MonadMPD m => String -> m [ByteString]
+getResponse cmd = (send cmd >>= parseResponse) `catch` sendpw
     where
         sendpw e@(ACK Auth _) = do
             pw <- getPassword
-            if null pw then throwError e
+            if null pw then throw e
                 else send ("password " ++ pw) >>= parseResponse
                   >> send cmd >>= parseResponse
-        sendpw e =
-            throwError e
+        sendpw e = throw e
 
 -- Consume response and return a Response.
-parseResponse :: (MonadError MPDError m) => [ByteString] -> m [ByteString]
+parseResponse :: MonadThrow m => [ByteString] -> m [ByteString]
 parseResponse xs
-    | null xs                    = throwError $ NoMPD
-    | "ACK" `isPrefixOf` x       = throwError $ parseAck x
+    | null xs                    = throw NoMPD
+    | "ACK" `isPrefixOf` x       = throw $ parseAck x
     | otherwise                  = return $ Prelude.takeWhile ("OK" /=) xs
     where
         x = head xs
