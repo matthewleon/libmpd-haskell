@@ -31,6 +31,7 @@ import           Control.Concurrent.STM.TVar (TVar, readTVar, readTVarIO, writeT
 import qualified Control.Exception as E
 import           Control.Exception.Safe (catch, catchAny)
 import           Control.Monad (ap, unless)
+import           Control.Monad.Base (MonadBase)
 import           Control.Monad.Error (ErrorT(..), MonadError(..))
 import           Control.Monad.IO.Class (MonadIO(liftIO))
 import           Control.Monad.Reader (ReaderT(..), ask, asks)
@@ -72,7 +73,7 @@ type Port = Integer
 newtype MPD a =
     MPD { runMPD :: ErrorT MPDError
                     (ReaderT MPDEnv IO) a
-        } deriving (Functor, Monad, MonadIO, MonadError MPDError)
+        } deriving (Functor, Monad, MonadIO, MonadError MPDError, MonadBase IO)
 
 instance Applicative MPD where
     (<*>) = ap
