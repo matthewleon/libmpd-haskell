@@ -18,7 +18,7 @@ module Network.MPD.Core (
     -- * Running
     withMPDEx,
     -- * Interacting
-    getResponse, kill,
+    getResponse, getResponseAsync, kill,
     ) where
 
 import           Network.MPD.Util
@@ -32,7 +32,7 @@ import           Control.Concurrent.STM.TVar (TVar, readTVarIO, writeTVar, newTV
 import qualified Control.Exception as E
 import           Control.Exception.Safe (catch, catchAny, catchIO, throw)
 import           Control.Monad (ap, unless)
-import           Control.Monad.Error (ErrorT(..), MonadError(..))
+import           Control.Monad.Error (ErrorT(..), MonadError(..), runErrorT)
 import           Control.Monad.IO.Class (MonadIO(liftIO))
 import           Control.Monad.Reader (ReaderT(..), ask, asks)
 import           Control.Monad.STM (atomically)
@@ -201,12 +201,12 @@ mpdSend str = send' `catchError` handler
                 >>= either (\err -> clearHandle
                                  >> throwError (ConnectionError err)) return
 
--- TODO: move handling of ConnectionError into async
--- TODO: create an async assisting tool that will handle ConnectionError as above
 mpdSendAsync :: String -> MPD (Async [ByteString])
 mpdSendAsync str = MPD $ do
     tHandle <- asks envHandle
     liftIO (readTVarIO tHandle) >>= maybe (throwError NoMPD) (go tHandle)
+    -- Note that we cannot try to reconnect on ConnectionError within the
+    -- bare IO monad that use of 'async' imposes.
     where
         go tHandle handle = liftIO . async $ do
             unless (null str) $
@@ -251,6 +251,16 @@ getResponse cmd = (send cmd >>= parseResponse) `catchError` sendpw
                   >> send cmd >>= parseResponse
         sendpw e =
             throwError e
+
+getResponseAsync :: MonadMPDAsync m => String -> m (Async [ByteString])
+getResponseAsync cmd = do
+  asyncResp <- sendAsync cmd
+  liftIO . async $ do
+    resp <- wait asyncResp
+    case parseResponse resp of
+      Right bs -> return bs
+      Left err -> 
+(sendAsync cmd >>= fmap parseResponse) `catchError` sendpw
 
 -- Consume response and return a Response.
 parseResponse :: (MonadError MPDError m) => [ByteString] -> m [ByteString]
