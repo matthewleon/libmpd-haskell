@@ -12,7 +12,7 @@
 
 module Network.MPD.Core (
     -- * Classes
-    MonadMPD(..),
+    MonadMPD(..), MonadMPDAsync(..),
     -- * Data types
     MPD, MPDError(..), ACKType(..), Response, Host, Port, Password,
     -- * Running
@@ -27,9 +27,10 @@ import           Network.MPD.Core.Error
 
 import           Data.Char (isDigit)
 import           Control.Applicative (Applicative(..), (<$>), (<*))
-import           Control.Concurrent.STM.TVar (TVar, readTVar, readTVarIO, writeTVar, newTVarIO)
+import           Control.Concurrent.Async (Async, async)
+import           Control.Concurrent.STM.TVar (TVar, readTVarIO, writeTVar, newTVarIO)
 import qualified Control.Exception as E
-import           Control.Exception.Safe (catch, catchAny)
+import           Control.Exception.Safe (catch, catchAny, catchIO, throw)
 import           Control.Monad (ap, unless)
 import           Control.Monad.Error (ErrorT(..), MonadError(..))
 import           Control.Monad.IO.Class (MonadIO(liftIO))
@@ -85,6 +86,9 @@ instance MonadMPD MPD where
     getPassword = readEnvTVar envPassword
     setPassword = writeEnvTVar envPassword
     getVersion  = readEnvTVar envVersion
+
+instance MonadMPDAsync MPD where
+    sendAsync = mpdSendAsync
 
 -- | Inner state for MPD
 data MPDEnv =
@@ -193,16 +197,31 @@ mpdSend str = send' `catchError` handler
 
         go handle = (liftIO . tryIOError $ do
             unless (null str) $ B.hPutStrLn handle (UTF8.fromString str) >> hFlush handle
-            getLines handle [])
+            hGetLines handle [])
                 >>= either (\err -> clearHandle
                                  >> throwError (ConnectionError err)) return
 
-        getLines :: Handle -> [ByteString] -> IO [ByteString]
-        getLines handle acc = do
-            l <- B.hGetLine handle
-            if "OK" `isPrefixOf` l || "ACK" `isPrefixOf` l
-                then (return . reverse) (l:acc)
-                else getLines handle (l:acc)
+-- TODO: move handling of ConnectionError into async
+-- TODO: create an async assisting tool that will handle ConnectionError as above
+mpdSendAsync :: String -> MPD (Async [ByteString])
+mpdSendAsync str = MPD $ do
+    tHandle <- asks envHandle
+    liftIO (readTVarIO tHandle) >>= maybe (throwError NoMPD) (go tHandle)
+    where
+        go tHandle handle = liftIO . async $ do
+            unless (null str) $
+              B.hPutStrLn handle (UTF8.fromString str) >> hFlush handle
+            hGetLines handle []
+            `catchIO` \err -> do
+              atomically $ writeTVar tHandle Nothing
+              throw $ ConnectionError err
+
+hGetLines :: Handle -> [ByteString] -> IO [ByteString]
+hGetLines handle acc = do
+    l <- B.hGetLine handle
+    if "OK" `isPrefixOf` l || "ACK" `isPrefixOf` l
+        then (return . reverse) (l:acc)
+        else hGetLines handle (l:acc)
 
 -- | Re-connect and retry for these Exceptions.
 isRetryable :: E.IOException -> Bool

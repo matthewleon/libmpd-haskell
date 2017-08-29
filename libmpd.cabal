@@ -40,6 +40,7 @@ Library
     Build-Depends:
         -- Platform dependencies
         base >= 4 && < 5
+      , async >= 2 && < 2.2
       , attoparsec >= 0.10.1 && < 1
       , bytestring >= 0.9 && < 1
       , containers >= 0.3 && < 1
@@ -118,6 +119,7 @@ Test-Suite specs
     Build-Depends:
         -- Platform dependencies
         base
+      , async
       , attoparsec
       , bytestring
       , containers
