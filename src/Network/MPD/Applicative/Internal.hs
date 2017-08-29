@@ -32,7 +32,7 @@ module Network.MPD.Applicative.Internal
     ) where
 
 import           Control.Applicative
-import           Control.Exception.Safe (MonadCatch, MonadThrow, throw)
+import           Control.Exception.Safe (throw)
 import           Control.Monad
 import           Data.ByteString.Char8 (ByteString)
 

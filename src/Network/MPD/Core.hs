@@ -1,5 +1,5 @@
 {-# LANGUAGE FlexibleContexts, GeneralizedNewtypeDeriving, OverloadedStrings #-}
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ScopedTypeVariables, MultiParamTypeClasses, TypeFamilies #-}
 
 -- | Module    : Network.MPD.Core
 -- Copyright   : (c) Ben Sinclair 2005-2009, Joachim Fasting 2010
@@ -35,6 +35,7 @@ import           Control.Monad.Base (MonadBase)
 import           Control.Monad.IO.Class (MonadIO(liftIO))
 import           Control.Monad.Reader (ReaderT(..), ask, asks)
 import           Control.Monad.STM (atomically)
+import           Control.Monad.Trans.Control (MonadBaseControl(..))
 import qualified Data.Foldable as F
 import           Network (PortID(..), withSocketsDo, connectTo)
 import           System.IO (Handle, hPutStrLn, hReady, hClose, hFlush)
@@ -76,6 +77,11 @@ newtype MPD a =
 instance Applicative MPD where
     (<*>) = ap
     pure  = return
+
+instance MonadBaseControl IO MPD where
+    type StM MPD a = a
+    liftBaseWith f = MPD $ liftBaseWith $ \q -> f (q . runMPD)
+    restoreM = MPD . restoreM
 
 instance MonadMPD MPD where
     open  = mpdOpen
