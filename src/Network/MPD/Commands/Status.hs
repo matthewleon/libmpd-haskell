@@ -17,6 +17,7 @@ module Network.MPD.Commands.Status
     , currentSong
     , idle
     , idleAsync
+    , idleMPD
     , noidle
     , stats
     , status
@@ -50,9 +51,14 @@ currentSong = A.runCommand A.currentSong
 idle :: MonadMPD m => [Subsystem] -> m [Subsystem]
 idle = A.runCommand . A.idle
 
+-- | A generalized, asynchronous version of 'idle', above.
 idleAsync :: (MonadMPD m, MonadBaseControl IO m)
           => [Subsystem] -> m (Async (StM m [Subsystem]))
 idleAsync = async . A.runCommand . A.idle
+
+-- | Same function as 'idleAsync', but specific to the 'MPD' monad.
+idleMPD :: [Subsystem] -> MPD (Async (Either MPDError [Subsystem]))
+idleMPD = idleAsync
 
 -- | Cancel 'idle'.
 noidle :: MonadMPD m => m ()
