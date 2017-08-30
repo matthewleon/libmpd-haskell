@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 {- |
 Module      : Network.MPD.Commands.Status
@@ -16,11 +16,14 @@ module Network.MPD.Commands.Status
     ( clearError
     , currentSong
     , idle
+    , idleAsync
     , noidle
     , stats
     , status
     ) where
 
+import           Control.Concurrent.Async.Lifted (Async, async)
+import           Control.Monad.Trans.Control (MonadBaseControl, StM)
 import qualified Network.MPD.Applicative.Internal as A
 import qualified Network.MPD.Applicative.Status as A
 import           Network.MPD.Commands.Types
@@ -46,6 +49,10 @@ currentSong = A.runCommand A.currentSong
 -- cancelled by 'noidle'.
 idle :: MonadMPD m => [Subsystem] -> m [Subsystem]
 idle = A.runCommand . A.idle
+
+idleAsync :: (MonadMPD m, MonadBaseControl IO m)
+          => [Subsystem] -> m (Async (StM m [Subsystem]))
+idleAsync = async . A.runCommand . A.idle
 
 -- | Cancel 'idle'.
 noidle :: MonadMPD m => m ()
