@@ -27,9 +27,10 @@ import           Network.MPD.Core.Error
 
 import           Data.Char (isDigit)
 import           Control.Applicative (Applicative(..), (<$>), (<*))
+import           Control.Concurrent.Async (Async, async, wait)
 import           Control.Concurrent.STM.TVar (TVar, readTVar, readTVarIO, writeTVar, newTVarIO)
 import qualified Control.Exception as E
-import           Control.Exception.Safe (catch, catchAny)
+import           Control.Exception.Safe (MonadThrow, MonadCatch, catch, catchAny, throw)
 import           Control.Monad (ap, unless)
 import           Control.Monad.Base (MonadBase)
 import           Control.Monad.Error (ErrorT(..), MonadError(..))
@@ -74,7 +75,8 @@ type Port = Integer
 newtype MPD a =
     MPD { runMPD :: ErrorT MPDError
                     (ReaderT MPDEnv IO) a
-        } deriving (Functor, Monad, MonadIO, MonadError MPDError, MonadBase IO)
+        } deriving (Functor, Monad, MonadIO, MonadError MPDError, MonadBase IO,
+                    MonadThrow, MonadCatch)
 
 instance Applicative MPD where
     (<*>) = ap
@@ -92,6 +94,9 @@ instance MonadMPD MPD where
     getPassword = readEnvTVar envPassword
     setPassword = writeEnvTVar envPassword
     getVersion  = readEnvTVar envVersion
+
+instance MonadMPDAsync MPD where
+    sendAsync = mpdSendAsync
 
 -- | Inner state for MPD
 data MPDEnv =
@@ -211,6 +216,26 @@ mpdSend str = send' `catchError` handler
                 then (return . reverse) (l:acc)
                 else getLines handle (l:acc)
 
+mpdSendAsync :: String -> MPD (Async [ByteString])
+mpdSendAsync str = MPD $ liftIO . async . go =<< asks envHandle
+    where
+        go :: TVar (Maybe Handle) -> IO [ByteString]
+        go tmHandle = do
+            mHandle <- atomically $ readTVar tmHandle
+            handle <- maybe (throw NoMPD) return mHandle
+            unless (null str) $
+              B.hPutStrLn handle (UTF8.fromString str) >> hFlush handle
+            getLines handle []
+              `catch` (\err -> atomically $ writeTVar tmHandle Nothing
+                            >> throw (ConnectionError err))
+
+        getLines :: Handle -> [ByteString] -> IO [ByteString]
+        getLines handle acc = do
+            l <- B.hGetLine handle
+            if "OK" `isPrefixOf` l || "ACK" `isPrefixOf` l
+                then (return . reverse) (l:acc)
+                else getLines handle (l:acc)
+
 -- | Re-connect and retry for these Exceptions.
 isRetryable :: E.IOException -> Bool
 isRetryable e = or [ isEOFError e, isResourceVanished e ]
@@ -227,6 +252,13 @@ isResourceVanished e = ioeGetErrorType e == GE.ResourceVanished
 -- | Kill the server. Obviously, the connection is then invalid.
 kill :: (MonadMPD m) => m ()
 kill = send "kill" >> return ()
+
+-- | Wait for results of an async operation with MPDErrors surfaced.
+mpdWait :: (MonadIO m, MonadCatch m, MonadError MPDError m) => Async a -> m a
+mpdWait asyncX = catch (liftIO $ wait asyncX) handler
+    where
+        handler :: MonadError MPDError m => MPDError -> m a
+        handler = throwError
 
 -- | Send a command to the MPD server and return the result.
 getResponse :: (MonadMPD m) => String -> m [ByteString]

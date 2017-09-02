@@ -14,7 +14,8 @@ import           Data.ByteString (ByteString)
 
 import           Network.MPD.Core.Error (MPDError)
 
-import           Control.Monad.Error (MonadError)
+import           Control.Concurrent.Async (Async)
+import           Control.Monad.Error (MonadError, throwError)
 
 type Password = String
 
@@ -34,3 +35,7 @@ class (Monad m, MonadError MPDError m) => MonadMPD m where
     setPassword :: Password -> m ()
     -- | Get MPD protocol version
     getVersion :: m (Int, Int, Int)
+
+class MonadMPD m => MonadMPDAsync m where
+    -- | Send a string to the server and return its response asynchronously.
+    sendAsync :: String -> m (Async [ByteString])
