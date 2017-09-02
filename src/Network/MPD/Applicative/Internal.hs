@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
 
@@ -29,10 +30,13 @@ module Network.MPD.Applicative.Internal
     , unexpected
     , Command(..)
     , runCommand
+    , runCommandAsync
     ) where
 
 import           Control.Applicative
+import           Control.Concurrent.Async.Lifted (Async, async)
 import           Control.Monad
+import           Control.Monad.Trans.Control (MonadBaseControl, StM)
 import           Data.ByteString.Char8 (ByteString)
 
 import           Network.MPD.Core hiding (getResponse)
@@ -98,3 +102,7 @@ runCommand (Command p c) = do
             [x] -> x
             xs  -> unlines ("command_list_ok_begin" : xs)
                    ++ "command_list_end"
+
+runCommandAsync :: (MonadMPD m, MonadBaseControl IO m)
+                => Command a -> m (Async (StM m a))
+runCommandAsync = async . runCommand

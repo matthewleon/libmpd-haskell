@@ -54,7 +54,7 @@ idle = A.runCommand . A.idle
 -- | A generalized, asynchronous version of 'idle', above.
 idleAsync :: (MonadMPD m, MonadBaseControl IO m)
           => [Subsystem] -> m (Async (StM m [Subsystem]))
-idleAsync = async . A.runCommand . A.idle
+idleAsync = A.runCommandAsync . A.idle
 
 -- | Same function as 'idleAsync', but specific to the 'MPD' monad.
 idleMPD :: [Subsystem] -> MPD (Async (Either MPDError [Subsystem]))
