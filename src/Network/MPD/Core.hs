@@ -29,7 +29,7 @@ import           Data.Char (isDigit)
 import           Control.Applicative (Applicative(..), (<$>), (<*))
 import qualified Control.Exception as E
 import           Control.Exception.Safe (catch, catchAny)
-import           Control.Monad (ap, unless)
+import           Control.Monad (ap, unless, void)
 import           Control.Monad.Error (ErrorT(..), MonadError(..))
 import           Control.Monad.Reader (ReaderT(..), ask)
 import           Control.Monad.State (StateT, MonadIO(..), modify, gets, evalStateT)
@@ -182,7 +182,7 @@ mpdSend str = send' `catchError` handler
 
 -- | Re-connect and retry for these Exceptions.
 isRetryable :: E.IOException -> Bool
-isRetryable e = or [ isEOFError e, isResourceVanished e ]
+isRetryable e = isEOFError e || isResourceVanished e
 
 -- | Predicate to identify ResourceVanished exceptions.
 -- Note: these are GHC only!
@@ -195,7 +195,7 @@ isResourceVanished e = ioeGetErrorType e == GE.ResourceVanished
 
 -- | Kill the server. Obviously, the connection is then invalid.
 kill :: (MonadMPD m) => m ()
-kill = send "kill" >> return ()
+kill = void $ send "kill"
 
 -- | Send a command to the MPD server and return the result.
 getResponse :: (MonadMPD m) => String -> m [ByteString]
@@ -212,7 +212,7 @@ getResponse cmd = (send cmd >>= parseResponse) `catchError` sendpw
 -- Consume response and return a Response.
 parseResponse :: (MonadError MPDError m) => [ByteString] -> m [ByteString]
 parseResponse xs
-    | null xs                    = throwError $ NoMPD
+    | null xs                    = throwError NoMPD
     | "ACK" `isPrefixOf` x       = throwError $ parseAck x
     | otherwise                  = return $ Prelude.takeWhile ("OK" /=) xs
     where

@@ -47,7 +47,7 @@ newtype Parser a
 instance Monad Parser where
     fail      = Parser . const . Left
     return a  = Parser $ \input -> Right (a, input)
-    p1 >>= p2 = Parser $ \input -> runParser p1 input >>= uncurry (runParser . p2)
+    p1 >>= p2 = Parser $ runParser p1 >=> uncurry (runParser . p2)
 
 instance Applicative Parser where
     pure  = return

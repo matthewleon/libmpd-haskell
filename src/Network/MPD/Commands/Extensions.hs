@@ -20,6 +20,7 @@ import qualified Network.MPD.Applicative.Internal as A
 import qualified Network.MPD.Applicative.CurrentPlaylist as A
 import qualified Network.MPD.Applicative.StoredPlaylists as A
 
+import           Control.Arrow (second)
 import           Control.Monad (liftM)
 import           Data.Traversable (for)
 import           Data.Foldable (for_)
@@ -47,7 +48,7 @@ addMany plname xs = A.runCommand (for_ xs cmd)
 addIdMany :: MonadMPD m => Path -> Maybe Position -> m [Id]
 addIdMany x (Just p) = do
     fs <- listAll x
-    let fs' = map (\(a, b) -> (a, Just b)) $ zip fs [p ..]
+    let fs' = map (second Just) $ zip fs [p ..]
     A.runCommand $ for fs' (uncurry A.addId)
 addIdMany x Nothing = do
     fs <- listAll x

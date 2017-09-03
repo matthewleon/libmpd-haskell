@@ -27,7 +27,7 @@ takeSongs = mapM parseSong . splitGroups ["file"] . toAssocList
 
 -- Run 'toAssocList' and return only the values.
 takeValues :: [ByteString] -> [ByteString]
-takeValues = snd . unzip . toAssocList
+takeValues = map snd . toAssocList
 
 -- an internal helper function
 decodePair :: (ByteString, ByteString) -> (String, String)

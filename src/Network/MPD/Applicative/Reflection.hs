@@ -26,6 +26,7 @@ import           Network.MPD.Applicative.Internal
 import           Network.MPD.Applicative.Util
 
 import           Control.Applicative
+import           Control.Arrow ((***))
 import           Prelude hiding (repeat, read)
 
 import qualified Data.ByteString.UTF8 as UTF8
@@ -74,4 +75,4 @@ decoders = Command p ["decoders"]
 config :: Command [(String, String)]
 config = Command p ["config"]
   where
-    p = map (\(k, v) -> (UTF8.toString k, UTF8.toString v)) . toAssocList <$> getResponse
+    p = map (UTF8.toString *** UTF8.toString) . toAssocList <$> getResponse
