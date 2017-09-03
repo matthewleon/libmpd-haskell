@@ -14,22 +14,25 @@ module Network.MPD.Core (
     -- * Classes
     MonadMPD(..),
     -- * Data types
-    MPD, MPDError(..), ACKType(..), Response, Host, Port, Password,
+    MPD(..), MPDError(..), MPDEnv(..), IdleState(..), ACKType(..),
+    Response, Host, Port, Password,
     -- * Running
     withMPDEx,
     -- * Interacting
-    getResponse, kill,
+    getResponse, kill, mpdWait,
     ) where
 
+import           Network.MPD.Commands.Types (Subsystem)
 import           Network.MPD.Util
 import           Network.MPD.Core.Class
 import           Network.MPD.Core.Error
 
 import           Data.Char (isDigit)
 import           Control.Applicative (Applicative(..), (<$>), (<*))
-import           Control.Concurrent.STM.TVar (TVar, readTVar, readTVarIO, writeTVar, newTVarIO)
+import           Control.Concurrent.STM.TVar (TVar, readTVarIO, writeTVar, newTVarIO)
+import           Control.Concurrent.Async.Lifted (Async, wait)
 import qualified Control.Exception as E
-import           Control.Exception.Safe (catch, catchAny)
+import           Control.Exception.Safe (MonadCatch, MonadThrow, catch, catchAny)
 import           Control.Monad (ap, unless)
 import           Control.Monad.Base (MonadBase)
 import           Control.Monad.Error (ErrorT(..), MonadError(..))
@@ -74,7 +77,8 @@ type Port = Integer
 newtype MPD a =
     MPD { runMPD :: ErrorT MPDError
                     (ReaderT MPDEnv IO) a
-        } deriving (Functor, Monad, MonadIO, MonadError MPDError, MonadBase IO)
+        } deriving (Functor, Monad, MonadIO, MonadError MPDError, MonadBase IO,
+                    MonadCatch, MonadThrow)
 
 instance Applicative MPD where
     (<*>) = ap
@@ -95,12 +99,16 @@ instance MonadMPD MPD where
 
 -- | Inner state for MPD
 data MPDEnv =
-    MPDEnv {   envHost     :: Host
-             , envPort     :: Port
-             , envHandle   :: TVar (Maybe Handle)
-             , envPassword :: TVar String
-             , envVersion  :: TVar (Int, Int, Int)
+    MPDEnv {   envHost      :: Host
+             , envPort      :: Port
+             , envHandle    :: TVar (Maybe Handle)
+             , envPassword  :: TVar String
+             , envVersion   :: TVar (Int, Int, Int)
+             , envIdleState :: TVar IdleState
              }
+
+data IdleState = NotIdling | Starting | Idling (Async [Subsystem])
+    deriving (Eq)
 
 readEnvTVar :: (MPDEnv -> TVar a) -> MPD a
 readEnvTVar accessor = MPD $ liftIO . readTVarIO =<< asks accessor
@@ -128,7 +136,8 @@ withMPDEx host port pw x = withSocketsDo $ do
       tHandle <- newTVarIO Nothing
       tPassword <- newTVarIO pw
       tVersion <- newTVarIO (0, 0, 0)
-      return $ MPDEnv host port tHandle tPassword tVersion
+      tIdleState <- newTVarIO NotIdling
+      return $ MPDEnv host port tHandle tPassword tVersion tIdleState
 
 mpdOpen :: MPD ()
 mpdOpen = MPD $ do
@@ -210,6 +219,10 @@ mpdSend str = send' `catchError` handler
             if "OK" `isPrefixOf` l || "ACK" `isPrefixOf` l
                 then (return . reverse) (l:acc)
                 else getLines handle (l:acc)
+
+-- | Wait for results of an async operation.
+mpdWait :: Async (Either MPDError a) -> MPD a
+mpdWait = wait
 
 -- | Re-connect and retry for these Exceptions.
 isRetryable :: E.IOException -> Bool

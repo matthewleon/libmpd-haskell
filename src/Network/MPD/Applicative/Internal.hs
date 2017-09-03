@@ -30,7 +30,6 @@ module Network.MPD.Applicative.Internal
     , unexpected
     , Command(..)
     , runCommand
-    , runCommandAsync
     ) where
 
 import           Control.Applicative
@@ -102,7 +101,3 @@ runCommand (Command p c) = do
             [x] -> x
             xs  -> unlines ("command_list_ok_begin" : xs)
                    ++ "command_list_end"
-
-runCommandAsync :: (MonadMPD m, MonadBaseControl IO m)
-                => Command a -> m (Async (StM m a))
-runCommandAsync = async . runCommand

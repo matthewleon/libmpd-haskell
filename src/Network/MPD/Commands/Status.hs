@@ -1,5 +1,3 @@
-{-# LANGUAGE FlexibleContexts #-}
-
 {- |
 Module      : Network.MPD.Commands.Status
 Copyright   : (c) Ben Sinclair 2005-2009, Joachim Fasting 2012
@@ -16,15 +14,11 @@ module Network.MPD.Commands.Status
     ( clearError
     , currentSong
     , idle
-    , idleAsync
-    , idleMPD
     , noidle
     , stats
     , status
     ) where
 
-import           Control.Concurrent.Async.Lifted (Async, async)
-import           Control.Monad.Trans.Control (MonadBaseControl, StM)
 import qualified Network.MPD.Applicative.Internal as A
 import qualified Network.MPD.Applicative.Status as A
 import           Network.MPD.Commands.Types
@@ -50,15 +44,6 @@ currentSong = A.runCommand A.currentSong
 -- cancelled by 'noidle'.
 idle :: MonadMPD m => [Subsystem] -> m [Subsystem]
 idle = A.runCommand . A.idle
-
--- | A generalized, asynchronous version of 'idle', above.
-idleAsync :: (MonadMPD m, MonadBaseControl IO m)
-          => [Subsystem] -> m (Async (StM m [Subsystem]))
-idleAsync = A.runCommandAsync . A.idle
-
--- | Same function as 'idleAsync', but specific to the 'MPD' monad.
-idleMPD :: [Subsystem] -> MPD (Async (Either MPDError [Subsystem]))
-idleMPD = idleAsync
 
 -- | Cancel 'idle'.
 noidle :: MonadMPD m => m ()
