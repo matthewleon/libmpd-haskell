@@ -29,7 +29,7 @@ import           Data.Char (isDigit)
 import           Control.Applicative (Applicative(..), (<$>), (<*))
 import           Control.Concurrent.STM.TVar (TVar, readTVar, readTVarIO, writeTVar, newTVarIO)
 import qualified Control.Exception as E
-import           Control.Exception.Safe (catch, catchAny)
+import           Control.Exception.Safe (MonadCatch, MonadThrow, catch, catchAny)
 import           Control.Monad (ap, unless, void)
 import           Control.Monad.Base (MonadBase)
 import           Control.Monad.Error (ErrorT(..), MonadError(..))
@@ -75,7 +75,8 @@ type Port = Integer
 newtype MPD a =
     MPD { runMPD :: ErrorT MPDError
                      (ReaderT MPDEnv IO) a
-        } deriving (Functor, Monad, MonadIO, MonadError MPDError, MonadBase IO)
+        } deriving (Functor, Monad, MonadIO, MonadError MPDError, MonadBase IO,
+                    MonadCatch, MonadThrow)
 
 instance Applicative MPD where
     (<*>) = ap
