@@ -30,7 +30,7 @@ import           Control.Applicative (Applicative(..), (<$>), (<*))
 import           Control.Concurrent.Async (Async, async, wait)
 import           Control.Concurrent.STM.TVar (TVar, readTVarIO, writeTVar, newTVarIO)
 import qualified Control.Exception as E
-import           Control.Exception.Safe (MonadCatch, MonadThrow, catch, catchIO, catchAny, handle, throw)
+import           Control.Exception.Safe (catch, catchIO, catchAny, handle, throw)
 import           Control.Monad (ap, unless, void)
 import           Control.Monad.Error (ErrorT(..), MonadError(..))
 import           Control.Monad.Reader (MonadIO(..), ReaderT(..), ask, asks)
@@ -72,8 +72,7 @@ type Port = Integer
 newtype MPD a =
     MPD { runMPD :: ErrorT MPDError
                      (ReaderT MPDEnv IO) a
-        } deriving (Functor, Monad, MonadIO, MonadError MPDError,
-                    MonadCatch, MonadThrow)
+        } deriving (Functor, Monad, MonadIO, MonadError MPDError)
 
 instance Applicative MPD where
     (<*>) = ap
@@ -216,24 +215,19 @@ mpdAsync x = MPD $ liftIO . async . unwrap =<< ask
     unwrap = runReaderT $ either throw return =<< runErrorT (runMPD x)
 
 mpdWait :: Async a -> MPD a
-mpdWait = handle throwError . liftIO . wait
+mpdWait = liftIO . handle throwError . wait
 
--- TODO: recover from connectionerrors after async fork
+-- TODO: recover from ConnectionError after async fork
+-- TODO: better error handling overall
 mpdSendAsync :: String -> MPD (Async [ByteString])
-mpdSendAsync str = send' `catch` handler
+mpdSendAsync str = MPD $ liftIO . go =<< asks envHandle
     where
-        handler err
-          | ConnectionError e <- err, isRetryable e = mpdOpen >> send'
-          | otherwise = throwError err
-
-        send' :: MPD (Async [ByteString])
-        send' = MPD $ liftIO . go =<< asks envHandle
-
         go :: TVar (Maybe Handle) -> IO (Async [ByteString])
         go tmHandle = do
             handle <- maybe (throw NoMPD) return =<< readTVarIO tmHandle
             unless (null str) $ B.hPutStrLn handle (UTF8.fromString str)
             hFlush handle
+            -- TODO: handle errors that could be thrown here
             getLines handle tmHandle []
             where
                 getLines :: Handle -> TVar (Maybe Handle) -> [ByteString]
