@@ -1,5 +1,5 @@
 {-# LANGUAGE FlexibleContexts, GeneralizedNewtypeDeriving, OverloadedStrings #-}
-{-# LANGUAGE ScopedTypeVariables, MultiParamTypeClasses, TypeFamilies #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 -- | Module    : Network.MPD.Core
 -- Copyright   : (c) Ben Sinclair 2005-2009, Joachim Fasting 2010
