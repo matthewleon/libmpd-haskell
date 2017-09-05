@@ -20,7 +20,7 @@ To use the library, do:
 
 module Network.MPD (
     -- * Basic data types
-    MonadMPD, MPD, MPDError(..), ACKType(..), Response,
+    MonadMPD, MPD, MPDError(..), ACKType(..),
     Host, Port, Password,
     -- * Connections
     withMPD, withMPD_, withMPDEx,
@@ -32,6 +32,7 @@ module Network.MPD (
 
 import           Prelude
 import qualified Control.Exception as E
+import           Control.Exception.Safe (throwString)
 import           Network.MPD.Commands
 import           Network.MPD.Core
 
@@ -48,7 +49,7 @@ import           Data.Maybe (listToMaybe)
 --
 -- > withMPD $ play Nothing
 -- > withMPD $ add_ "tool" >> play Nothing >> currentSong
-withMPD :: MPD a -> IO (Response a)
+withMPD :: MPD a -> IO a
 withMPD = withMPD_ Nothing Nothing
 
 -- | Same as `withMPD`, but takes optional arguments that override MPD_HOST and
@@ -59,21 +60,19 @@ withMPD = withMPD_ Nothing Nothing
 -- arguments are not given.
 withMPD_ :: Maybe String -- ^ optional override for MPD_HOST
          -> Maybe String -- ^ optional override for MPD_PORT
-         -> MPD a -> IO (Response a)
+         -> MPD a -> IO a
 withMPD_ mHost mPort action = do
-    settings <- getConnectionSettings mHost mPort
-    case settings of
-      Right (host, port, pw) -> withMPDEx host port pw action
-      Left err -> (return . Left . Custom) err
+    (host, port, pw) <- getConnectionSettings mHost mPort
+    withMPDEx host port pw action
 
-getConnectionSettings :: Maybe String -> Maybe String -> IO (Either String (Host, Port, Password))
+getConnectionSettings :: Maybe String -> Maybe String -> IO (Host, Port, Password)
 getConnectionSettings mHost mPort = do
     (host, pw) <- parseHost `fmap`
         maybe (getEnvDefault "MPD_HOST" "localhost") return mHost
     port <- maybe (getEnvDefault "MPD_PORT" "6600") return mPort
     case maybeRead port of
-      Just p  -> (return . Right) (host, p, pw)
-      Nothing -> (return . Left) (show port ++ " is not a valid port!")
+      Just p  -> return (host, p, pw)
+      Nothing -> throwString $ show port ++ " is not a valid port!"
     where
         parseHost s = case breakChar '@' s of
                           (host, "") -> (host, "")

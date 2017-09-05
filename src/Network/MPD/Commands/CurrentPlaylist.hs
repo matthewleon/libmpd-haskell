@@ -45,7 +45,7 @@ import           Network.MPD.Commands.Types
 import           Network.MPD.Core
 import           Network.MPD.Util
 
-import           Control.Monad.Error (throwError)
+import           Control.Exception.Safe (throw)
 
 -- | Like 'add', but returns a playlist id.
 addId :: MonadMPD m => Path -> Maybe Position -> m Id
@@ -85,7 +85,7 @@ playlist = mapM f =<< getResponse "playlist"
     where f s | (pos, name) <- breakChar ':' s
               , Just pos'   <- parseNum pos
               = return (pos', Path name)
-              | otherwise = throwError . Unexpected $ show s
+              | otherwise = throw . Unexpected $ show s
 {-# WARNING playlist "this is deprecated; please use 'playlistInfo' instead." #-}
 
 -- | Search for songs in the current playlist with strict matching.

@@ -32,12 +32,12 @@ module Network.MPD.Applicative.Internal
     ) where
 
 import           Control.Applicative
+import           Control.Exception.Safe (throw)
 import           Control.Monad
 import           Data.ByteString.Char8 (ByteString)
 
 import           Network.MPD.Core hiding (getResponse)
 import qualified Network.MPD.Core as Core
-import           Control.Monad.Error
 
 -- | A line-oriented parser that returns a value along with any remaining input.
 newtype Parser a
@@ -90,9 +90,9 @@ runCommand :: MonadMPD m => Command a -> m a
 runCommand (Command p c) = do
     r <- Core.getResponse command
     case runParser p r of
-        Left err      -> throwError (Unexpected err)
+        Left err      -> throw (Unexpected err)
         Right (a, []) -> return a
-        Right (_, xs) -> throwError (Unexpected $ "superfluous input: " ++ show xs)
+        Right (_, xs) -> throw (Unexpected $ "superfluous input: " ++ show xs)
     where
         command = case c of
             [x] -> x

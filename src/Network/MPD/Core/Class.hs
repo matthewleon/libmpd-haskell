@@ -10,17 +10,14 @@
 
 module Network.MPD.Core.Class where
 
-import           Data.ByteString (ByteString)
-
-import           Network.MPD.Core.Error (MPDError)
-
-import           Control.Monad.Error (MonadError)
+import Control.Exception.Safe (MonadCatch, MonadThrow)
+import Data.ByteString (ByteString)
 
 type Password = String
 
 -- | A typeclass to allow for multiple implementations of a connection
 --   to an MPD server.
-class (Monad m, MonadError MPDError m) => MonadMPD m where
+class (MonadCatch m, MonadThrow m) => MonadMPD m where
     -- | Open (or re-open) a connection to the MPD server.
     open  :: m ()
     -- | Close the connection.
