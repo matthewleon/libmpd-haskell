@@ -10,6 +10,7 @@
 
 module Network.MPD.Core.Class where
 
+import           Control.Concurrent.Async (Async)
 import           Data.ByteString (ByteString)
 
 import           Network.MPD.Core.Error (MPDError)
@@ -34,3 +35,6 @@ class (Monad m, MonadError MPDError m) => MonadMPD m where
     setPassword :: Password -> m ()
     -- | Get MPD protocol version
     getVersion :: m (Int, Int, Int)
+
+class MonadMPD m => MonadMPDAsync m where
+    sendAsync :: String -> m (Async [ByteString])

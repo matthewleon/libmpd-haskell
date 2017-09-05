@@ -12,7 +12,7 @@
 
 module Network.MPD.Core (
     -- * Classes
-    MonadMPD(..),
+    MonadMPD(..), MonadMPDAsync(..),
     -- * Data types
     MPD, MPDError(..), ACKType(..), Response, Host, Port, Password,
     -- * Running
@@ -96,6 +96,9 @@ instance MonadMPD MPD where
     setPassword = writeEnvTVar envPassword
     getVersion  = readEnvTVar envVersion
 
+instance MonadMPDAsync MPD where
+    sendAsync = mpdSendAsync
+
 data MPDEnv =
     MPDEnv {   envHost     :: Host
              , envPort     :: Port
@@ -132,6 +135,7 @@ withMPDEx host port pw x = withSocketsDo $ do
       tVersion <- newTVarIO (0, 0, 0)
       return $ MPDEnv host port tHandle tPassword tVersion
 
+-- TODO: make version that runs in IO for mpdSendAsync
 mpdOpen :: MPD ()
 mpdOpen = MPD $ do
     env <- ask
@@ -213,6 +217,8 @@ mpdSend str = send' `catchError` handler
                 then (return . reverse) (l:acc)
                 else getLines handle (l:acc)
 
+-- TODO: recover from connectionerrors after async fork
+-- will need an mpdOpen running in IO
 mpdSendAsync :: String -> MPD (Async [ByteString])
 mpdSendAsync str = send' `catch` handler
     where
