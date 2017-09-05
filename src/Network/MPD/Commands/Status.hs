@@ -21,6 +21,8 @@ module Network.MPD.Commands.Status
     , status
     ) where
 
+import           Control.Concurrent.Async (Async)
+
 import qualified Network.MPD.Applicative.Internal as A
 import qualified Network.MPD.Applicative.Status as A
 import           Network.MPD.Commands.Types
@@ -46,6 +48,9 @@ currentSong = A.runCommand A.currentSong
 -- cancelled by 'noidle'.
 idle :: MonadMPD m => [Subsystem] -> m [Subsystem]
 idle = A.runCommand . A.idle
+
+idleAsync :: MonadMPDAsync m => [Subsystem] -> m (Async [Subsystem])
+idleAsync = A.runCommandAsync . A.idle
 
 -- | Cancel 'idle'.
 noidle :: MonadMPD m => m ()
