@@ -38,5 +38,5 @@ class (Monad m, MonadError MPDError m) => MonadMPD m where
 
 class MonadMPD m => MonadMPDAsync m where
     asyncMPD  :: m a -> m (Async a)
-    waitMPD   :: m (Async a) -> m a
+    waitMPD   :: Async a -> m a
     sendAsync :: String -> m (Async [ByteString])

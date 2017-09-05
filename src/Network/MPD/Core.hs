@@ -217,8 +217,8 @@ mpdAsync x = MPD $ liftIO . async . unwrap =<< ask
     where
     unwrap = runReaderT $ either throw return =<< runErrorT (runMPD x)
 
-mpdWait :: MPD (Async a) -> MPD a
-mpdWait = join . fmap (handle throwError . liftIO . wait)
+mpdWait :: Async a -> MPD a
+mpdWait = handle throwError . liftIO . wait
 
 -- TODO: recover from connectionerrors after async fork
 mpdSendAsync :: String -> MPD (Async [ByteString])
@@ -279,10 +279,10 @@ getResponse cmd = (send cmd >>= parseResponse) `catchError` sendpw
             throwError e
 
 {-
-getResponseAsync :: (MonadMPDAsync m) => String -> m [ByteString]
+getResponseAsync :: (MonadMPDAsync m) => String -> m (Async [ByteString])
 getResponseAsync cmd = do
   asyncResp <- sendAsync cmd
-  async $ (wait asyncResp >>= parseResponseIO) `catch` sendpw
+  asyncMPD $ (waitMPD asyncResp >>= parseResponse) `catchError` sendpw
     where
         sendpw e@(ACK Auth _) = do
             pw <- getPassword
@@ -293,7 +293,6 @@ getResponseAsync cmd = do
             throwError e
 -}
 
-
 -- Consume response and return a Response.
 parseResponse :: (MonadError MPDError m) => [ByteString] -> m [ByteString]
 parseResponse xs
@@ -302,9 +301,6 @@ parseResponse xs
     | otherwise                  = return $ Prelude.takeWhile ("OK" /=) xs
     where
         x = head xs
-
-parseResponseIO :: [ByteString] -> IO [ByteString]
-parseResponseIO = either throw return . parseResponse
 
 -- Turn MPD ACK into the corresponding 'MPDError'
 parseAck :: ByteString -> MPDError
