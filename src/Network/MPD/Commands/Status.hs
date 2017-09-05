@@ -16,6 +16,7 @@ module Network.MPD.Commands.Status
     ( clearError
     , currentSong
     , idle
+    , idleAsync
     , noidle
     , stats
     , status
