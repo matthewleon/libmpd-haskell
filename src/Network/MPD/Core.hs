@@ -278,7 +278,6 @@ getResponse cmd = (send cmd >>= parseResponse) `catchError` sendpw
         sendpw e =
             throwError e
 
-{-
 getResponseAsync :: (MonadMPDAsync m) => String -> m (Async [ByteString])
 getResponseAsync cmd = do
   asyncResp <- sendAsync cmd
@@ -291,7 +290,6 @@ getResponseAsync cmd = do
                   >> send cmd >>= parseResponse
         sendpw e =
             throwError e
--}
 
 -- Consume response and return a Response.
 parseResponse :: (MonadError MPDError m) => [ByteString] -> m [ByteString]
