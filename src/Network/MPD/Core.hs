@@ -30,7 +30,7 @@ import           Control.Applicative (Applicative(..), (<$>), (<*))
 import           Control.Concurrent.Async (Async, async, wait)
 import           Control.Concurrent.STM.TVar (TVar, readTVarIO, writeTVar, newTVarIO)
 import qualified Control.Exception as E
-import           Control.Exception.Safe (catch, catchIO, catchAny, handle, throw)
+import           Control.Exception.Safe (catch, catchIO, catchAny, handle, handleIO, throw)
 import           Control.Monad (ap, unless, void)
 import           Control.Monad.Error (ErrorT(..), MonadError(..))
 import           Control.Monad.Reader (MonadIO(..), ReaderT(..), ask, asks)
@@ -214,8 +214,13 @@ mpdAsync x = MPD $ liftIO . async . unwrap =<< ask
     where
     unwrap = runReaderT $ either throw return =<< runErrorT (runMPD x)
 
+-- wait on an async, lifting all errors to MonadError MPDError
 mpdWait :: Async a -> MPD a
-mpdWait = liftIO . handle throwError . wait
+mpdWait = MPD
+        . handle throwError
+        . handleIO (throwError . ConnectionError)
+        . liftIO
+        . wait
 
 -- TODO: recover from ConnectionError after async fork
 -- TODO: better error handling overall
