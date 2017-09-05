@@ -121,6 +121,7 @@ Test-Suite specs
     Build-Depends:
         -- Platform dependencies
         base
+      , async
       , attoparsec
       , bytestring
       , containers
