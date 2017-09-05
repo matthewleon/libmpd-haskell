@@ -30,7 +30,7 @@ import           Control.Applicative (Applicative(..), (<$>), (<*))
 import           Control.Concurrent.Async (Async, async, wait)
 import           Control.Concurrent.STM.TVar (TVar, readTVarIO, writeTVar, newTVarIO)
 import qualified Control.Exception as E
-import           Control.Exception.Safe (MonadCatch, MonadThrow, catch, catchAny, handle, throw)
+import           Control.Exception.Safe (MonadCatch, MonadThrow, catch, catchIO, catchAny, handle, throw)
 import           Control.Monad (ap, join, unless, void)
 import           Control.Monad.Error (ErrorT(..), MonadError(..))
 import           Control.Monad.IO.Class (MonadIO(liftIO))
@@ -90,8 +90,9 @@ instance MonadMPD MPD where
     getVersion  = readEnvTVar envVersion
 
 instance MonadMPDAsync MPD where
-    asyncMPD = mpdAsync
-    waitMPD  = mpdWait
+    asyncMPD  = mpdAsync
+    waitMPD   = mpdWait
+    sendAsync = mpdSendAsync
 
 data MPDEnv =
     MPDEnv {   envHost     :: Host
@@ -220,7 +221,6 @@ mpdWait :: MPD (Async a) -> MPD a
 mpdWait = join . fmap (handle throwError . liftIO . wait)
 
 -- TODO: recover from connectionerrors after async fork
-{-
 mpdSendAsync :: String -> MPD (Async [ByteString])
 mpdSendAsync str = send' `catch` handler
     where
@@ -248,7 +248,6 @@ mpdSendAsync str = send' `catch` handler
                     `catchIO` \err -> do
                         atomically $ writeTVar tmHandle Nothing
                         throw $ ConnectionError err
--}
 
 -- | Re-connect and retry for these Exceptions.
 isRetryable :: E.IOException -> Bool
