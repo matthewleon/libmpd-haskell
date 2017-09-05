@@ -276,6 +276,12 @@ getResponse cmd = (send cmd >>= parseResponse) `catchError` sendpw
         sendpw e =
             throwError e
 
+{-
+getResponseAsync :: (MonadMPDAsync m) => String -> m [ByteString]
+getResponseAsync cmd = do
+  sendAsync
+-}
+
 -- Consume response and return a Response.
 parseResponse :: (MonadError MPDError m) => [ByteString] -> m [ByteString]
 parseResponse xs
@@ -284,6 +290,9 @@ parseResponse xs
     | otherwise                  = return $ Prelude.takeWhile ("OK" /=) xs
     where
         x = head xs
+
+parseResponseIO :: [ByteString] -> IO [ByteString]
+parseResponseIO = either throw return . parseResponse
 
 -- Turn MPD ACK into the corresponding 'MPDError'
 parseAck :: ByteString -> MPDError
