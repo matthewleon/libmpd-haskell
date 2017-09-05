@@ -27,9 +27,10 @@ import           Network.MPD.Core.Error
 
 import           Data.Char (isDigit)
 import           Control.Applicative (Applicative(..), (<$>), (<*))
-import           Control.Concurrent.STM.TVar (TVar, readTVar, readTVarIO, writeTVar, newTVarIO)
+import           Control.Concurrent.Async (Async, async, wait)
+import           Control.Concurrent.STM.TVar (TVar, readTVarIO, writeTVar, newTVarIO)
 import qualified Control.Exception as E
-import           Control.Exception.Safe (MonadCatch, MonadThrow, catch, catchAny)
+import           Control.Exception.Safe (MonadCatch, MonadThrow, catch, catchAny, catchIO, throw)
 import           Control.Monad (ap, unless, void)
 import           Control.Monad.Base (MonadBase)
 import           Control.Monad.Error (ErrorT(..), MonadError(..))
@@ -211,6 +212,34 @@ mpdSend str = send' `catchError` handler
             if "OK" `isPrefixOf` l || "ACK" `isPrefixOf` l
                 then (return . reverse) (l:acc)
                 else getLines handle (l:acc)
+
+mpdSendAsync :: String -> MPD (Async [ByteString])
+mpdSendAsync str = send' `catch` handler
+    where
+        handler err
+          | ConnectionError e <- err, isRetryable e = mpdOpen >> send'
+          | otherwise = throwError err
+
+        send' :: MPD (Async [ByteString])
+        send' = MPD $ liftIO . go =<< asks envHandle
+
+        go :: TVar (Maybe Handle) -> IO (Async [ByteString])
+        go tmHandle = do
+            handle <- maybe (throw NoMPD) return =<< readTVarIO tmHandle
+            unless (null str) $ B.hPutStrLn handle (UTF8.fromString str)
+            hFlush handle
+            getLines handle tmHandle []
+            where
+                getLines :: Handle -> TVar (Maybe Handle) -> [ByteString]
+                         -> IO (Async [ByteString])
+                getLines handle tmHandle acc = async $ do
+                    l <- B.hGetLine handle
+                    if "OK" `isPrefixOf` l || "ACK" `isPrefixOf` l
+                        then (return . reverse) (l:acc)
+                        else wait =<< getLines handle tmHandle (l:acc)
+                    `catchIO` \err -> do
+                        atomically $ writeTVar tmHandle Nothing
+                        throw $ ConnectionError err
 
 -- | Re-connect and retry for these Exceptions.
 isRetryable :: E.IOException -> Bool
