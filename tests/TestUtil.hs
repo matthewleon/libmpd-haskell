@@ -11,11 +11,11 @@ import           Network.MPD.Applicative
 import           Test.Hspec
 import           StringConn
 
-with :: Eq a => Command a -> [(Expect, Response String)] -> Response a
+with :: Eq a => Command a -> [(Expect, String)] -> IO a
 with = flip testMPD . runCommand
 
 withPassword :: Eq a => Password
-             -> [(Expect, Response String)]
+             -> [(Expect, String)]
              -> Command a
-             -> Response a
+             -> IO a
 withPassword pwd ps m = testMPDWithPassword ps pwd (runCommand m)

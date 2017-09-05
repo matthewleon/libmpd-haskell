@@ -12,8 +12,8 @@
 module StringConn where
 
 import           Control.Applicative
+import           Control.Exception.Safe (MonadCatch, MonadThrow, throw)
 import           Prelude hiding (exp)
-import           Control.Monad.Error
 import           Control.Monad.Identity
 import           Control.Monad.Reader
 import           Control.Monad.State
@@ -32,15 +32,14 @@ data StringMPDError
 
 data Result a
     = Ok
-    | BadResult (Response a) (Response a)  -- expected, then actual
+    | BadResult a a  -- expected, then actual
     | BadRequest StringMPDError
       deriving (Show, Eq)
 
 newtype StringMPD a =
-    SMPD { runSMPD :: ErrorT MPDError
-                      (StateT [(Expect, Response String)]
-                       (ReaderT Password Identity)) a
-         } deriving (Functor, Applicative, Monad, MonadError MPDError)
+    SMPD { runSMPD :: (StateT [(Expect, String)]
+                       (ReaderT Password IO)) a
+         } deriving (Functor, Applicative, Monad, MonadCatch, MonadThrow)
 
 instance MonadMPD StringMPD where
     getVersion  = error "StringConn.getVersion: undefined"
@@ -53,13 +52,13 @@ instance MonadMPD StringMPD where
         SMPD $ do
             ~pairs@((expected_request,response):rest) <- get
             when (null pairs)
-                 (throwError $ Custom "too many requests")
+                 (throw $ Custom "too many requests")
             when (expected_request /= request)
-                 (throwError . Custom $ "unexpected request: " ++ show request ++ ", expected: " ++ show expected_request)
+                 (throw . Custom $ "unexpected request: " ++ show request ++ ", expected: " ++ show expected_request)
             put rest
-            either throwError (return . B.lines . UTF8.fromString) response
+            return . B.lines $ UTF8.fromString response
 
-testMPD :: (Eq a) => [(Expect, Response String)] -> StringMPD a -> Response a
+testMPD :: (Eq a) => [(Expect, String)] -> StringMPD a -> IO a
 testMPD pairs m = testMPDWithPassword pairs "" m
 
 -- | Run an action against a set of expected requests and responses,
@@ -68,9 +67,9 @@ testMPD pairs m = testMPDWithPassword pairs "" m
 -- computation is returned along with pairs of expected and received
 -- requests.
 testMPDWithPassword :: (Eq a)
-        => [(Expect, Response String)] -- ^ The expected requests and their
+        => [(Expect, String)] -- ^ The expected requests and their
                                        -- ^ corresponding responses.
         -> Password                    -- ^ A password to be supplied.
         -> StringMPD a                 -- ^ The MPD action to run.
-        -> Response a
-testMPDWithPassword pairs passwd m = runIdentity $ runReaderT (evalStateT (runErrorT $ runSMPD m) pairs) passwd
+        -> IO a
+testMPDWithPassword pairs passwd m = runReaderT (evalStateT (runSMPD m) pairs) passwd
