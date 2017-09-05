@@ -30,14 +30,12 @@ import           Control.Applicative (Applicative(..), (<$>), (<*))
 import           Control.Concurrent.Async (Async, async, wait)
 import           Control.Concurrent.STM.TVar (TVar, readTVarIO, writeTVar, newTVarIO)
 import qualified Control.Exception as E
-import           Control.Exception.Safe (MonadCatch, MonadThrow, catch, catchAny, catchIO, throw)
-import           Control.Monad (ap, unless, void)
-import           Control.Monad.Base (MonadBase)
+import           Control.Exception.Safe (MonadCatch, MonadThrow, catch, catchAny, handle, throw)
+import           Control.Monad (ap, join, unless, void)
 import           Control.Monad.Error (ErrorT(..), MonadError(..))
 import           Control.Monad.IO.Class (MonadIO(liftIO))
 import           Control.Monad.Reader (ReaderT(..), ask, asks)
 import           Control.Monad.STM (atomically)
-import           Control.Monad.Trans.Control (MonadBaseControl(..))
 import           Control.Monad.State (StateT, MonadIO(..), modify, gets, evalStateT)
 import qualified Data.Foldable as F
 import           Network (PortID(..), withSocketsDo, connectTo)
@@ -76,17 +74,12 @@ type Port = Integer
 newtype MPD a =
     MPD { runMPD :: ErrorT MPDError
                      (ReaderT MPDEnv IO) a
-        } deriving (Functor, Monad, MonadIO, MonadError MPDError, MonadBase IO,
+        } deriving (Functor, Monad, MonadIO, MonadError MPDError,
                     MonadCatch, MonadThrow)
 
 instance Applicative MPD where
     (<*>) = ap
     pure  = return
-
-instance MonadBaseControl IO MPD where
-  type StM MPD a = Either MPDError a
-  liftBaseWith f = MPD $ liftBaseWith $ \q -> f (q . runMPD)
-  restoreM = MPD . restoreM
 
 instance MonadMPD MPD where
     open  = mpdOpen
@@ -97,7 +90,8 @@ instance MonadMPD MPD where
     getVersion  = readEnvTVar envVersion
 
 instance MonadMPDAsync MPD where
-    sendAsync = mpdSendAsync
+    asyncMPD = mpdAsync
+    waitMPD  = mpdWait
 
 data MPDEnv =
     MPDEnv {   envHost     :: Host
@@ -217,8 +211,16 @@ mpdSend str = send' `catchError` handler
                 then (return . reverse) (l:acc)
                 else getLines handle (l:acc)
 
+mpdAsync :: MPD a -> MPD (Async a)
+mpdAsync x = MPD $ liftIO . async . unwrap =<< ask
+    where
+    unwrap = runReaderT $ either throw return =<< runErrorT (runMPD x)
+
+mpdWait :: MPD (Async a) -> MPD a
+mpdWait = join . fmap (handle throwError . liftIO . wait)
+
 -- TODO: recover from connectionerrors after async fork
--- will need an mpdOpen running in IO
+{-
 mpdSendAsync :: String -> MPD (Async [ByteString])
 mpdSendAsync str = send' `catch` handler
     where
@@ -246,6 +248,7 @@ mpdSendAsync str = send' `catch` handler
                     `catchIO` \err -> do
                         atomically $ writeTVar tmHandle Nothing
                         throw $ ConnectionError err
+-}
 
 -- | Re-connect and retry for these Exceptions.
 isRetryable :: E.IOException -> Bool
@@ -279,8 +282,18 @@ getResponse cmd = (send cmd >>= parseResponse) `catchError` sendpw
 {-
 getResponseAsync :: (MonadMPDAsync m) => String -> m [ByteString]
 getResponseAsync cmd = do
-  sendAsync
+  asyncResp <- sendAsync cmd
+  async $ (wait asyncResp >>= parseResponseIO) `catch` sendpw
+    where
+        sendpw e@(ACK Auth _) = do
+            pw <- getPassword
+            if null pw then throwError e
+                else send ("password " ++ pw) >>= parseResponse
+                  >> send cmd >>= parseResponse
+        sendpw e =
+            throwError e
 -}
+
 
 -- Consume response and return a Response.
 parseResponse :: (MonadError MPDError m) => [ByteString] -> m [ByteString]
