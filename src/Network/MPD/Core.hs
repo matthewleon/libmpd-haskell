@@ -18,7 +18,7 @@ module Network.MPD.Core (
     -- * Running
     withMPDEx,
     -- * Interacting
-    getResponse, kill,
+    getResponse, getResponseAsync, kill,
     ) where
 
 import           Network.MPD.Util

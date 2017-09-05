@@ -39,4 +39,5 @@ class (Monad m, MonadError MPDError m) => MonadMPD m where
 class MonadMPD m => MonadMPDAsync m where
     asyncMPD  :: m a -> m (Async a)
     waitMPD   :: Async a -> m a
+    -- | Send a string to the server and asynchronously wait for its response.
     sendAsync :: String -> m (Async [ByteString])

@@ -29,9 +29,11 @@ module Network.MPD.Applicative.Internal
     , unexpected
     , Command(..)
     , runCommand
+    , runCommandAsync
     ) where
 
 import           Control.Applicative
+import           Control.Concurrent.Async (Async)
 import           Control.Monad
 import           Data.ByteString.Char8 (ByteString)
 
@@ -98,3 +100,19 @@ runCommand (Command p c) = do
             [x] -> x
             xs  -> unlines ("command_list_ok_begin" : xs)
                    ++ "command_list_end"
+
+runCommandAsync :: MonadMPDAsync m => Command a -> m (Async a)
+runCommandAsync (Command p c) = do
+    asyncR <- Core.getResponseAsync command
+    asyncMPD $ do
+      r <- waitMPD asyncR
+      case runParser p r of
+          Left err      -> throwError (Unexpected err)
+          Right (a, []) -> return a
+          Right (_, xs) -> throwError (Unexpected $ "superfluous input: " ++ show xs)
+    where
+        command = case c of
+            [x] -> x
+            xs  -> unlines ("command_list_ok_begin" : xs)
+                   ++ "command_list_end"
+
