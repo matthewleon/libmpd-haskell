@@ -202,12 +202,12 @@ mpdSend str = send' `catchError` handler
                 >>= either (\err -> clearHandle
                                  >> throwError (ConnectionError err)) return
 
-        getLines :: Handle -> [ByteString] -> IO [ByteString]
-        getLines handle acc = do
-            l <- B.hGetLine handle
-            if "OK" `isPrefixOf` l || "ACK" `isPrefixOf` l
-                then (return . reverse) (l:acc)
-                else getLines handle (l:acc)
+getLines :: Handle -> [ByteString] -> IO [ByteString]
+getLines handle acc = do
+    l <- B.hGetLine handle
+    if "OK" `isPrefixOf` l || "ACK" `isPrefixOf` l
+        then (return . reverse) (l:acc)
+        else getLines handle (l:acc)
 
 mpdAsync :: MPD a -> MPD (Async a)
 mpdAsync x = MPD $ liftIO . async . unwrap =<< ask
@@ -222,29 +222,20 @@ mpdWait = MPD
         . liftIO
         . wait
 
--- TODO: recover from ConnectionError after async fork
--- TODO: better error handling overall
+-- TODO: recover from ConnectionError after async fork?
 mpdSendAsync :: String -> MPD (Async [ByteString])
-mpdSendAsync str = MPD $ liftIO . go =<< asks envHandle
+mpdSendAsync str = MPD $ do
+    tmHandle <- asks envHandle
+    handle <- maybe (throwError NoMPD) return =<< liftIO (readTVarIO tmHandle)
+    liftIO . unless (null str) $ (do
+          B.hPutStrLn handle (UTF8.fromString str)
+          liftIO $ hFlush handle
+        ) `catchIO` handleErr tmHandle
+    liftIO . async $ getLines handle [] `catchIO` handleErr tmHandle
     where
-        go :: TVar (Maybe Handle) -> IO (Async [ByteString])
-        go tmHandle = do
-            handle <- maybe (throw NoMPD) return =<< readTVarIO tmHandle
-            unless (null str) $ B.hPutStrLn handle (UTF8.fromString str)
-            hFlush handle
-            -- TODO: handle errors that could be thrown here
-            getLines handle tmHandle []
-            where
-                getLines :: Handle -> TVar (Maybe Handle) -> [ByteString]
-                         -> IO (Async [ByteString])
-                getLines handle tmHandle acc = async $ do
-                    l <- B.hGetLine handle
-                    if "OK" `isPrefixOf` l || "ACK" `isPrefixOf` l
-                        then (return . reverse) (l:acc)
-                        else wait =<< getLines handle tmHandle (l:acc)
-                    `catchIO` \err -> do
-                        atomically $ writeTVar tmHandle Nothing
-                        throw $ ConnectionError err
+        handleErr tmHandle err = do
+          atomically $ writeTVar tmHandle Nothing
+          throw $ ConnectionError err
 
 -- | Re-connect and retry for these Exceptions.
 isRetryable :: E.IOException -> Bool
