@@ -223,6 +223,8 @@ mpdWait = MPD
         . wait
 
 -- TODO: recover from ConnectionError after async fork?
+-- Idea: if we moved that code the getResponse, then this and mpdSend would be
+-- much more similar!
 mpdSendAsync :: String -> MPD (Async [ByteString])
 mpdSendAsync str = MPD $ do
     tmHandle <- asks envHandle
