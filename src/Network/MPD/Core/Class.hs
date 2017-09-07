@@ -10,7 +10,8 @@
 
 module Network.MPD.Core.Class where
 
-import           Control.Concurrent.Async (Async)
+import           Control.Concurrent.Async.Lifted (Async)
+import           Control.Monad.Trans.Control (MonadBaseControl, StM)
 import           Data.ByteString (ByteString)
 
 import           Network.MPD.Core.Error (MPDError)
@@ -36,8 +37,6 @@ class (Monad m, MonadError MPDError m) => MonadMPD m where
     -- | Get MPD protocol version
     getVersion :: m (Int, Int, Int)
 
-class MonadMPD m => MonadMPDAsync m where
-    asyncMPD  :: m a -> m (Async a)
-    waitMPD   :: Async a -> m a
-    -- | Send a string to the server and asynchronously wait for its response.
-    sendAsync :: String -> m (Async [ByteString])
+class (MonadMPD m, MonadBaseControl IO m) => MonadMPDAsync m where
+    -- | Send a string to the server and asynchronously handle its response.
+    sendAsync :: String -> (Async (StM m [ByteString]) -> m a) -> m a

@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
 
@@ -33,8 +34,9 @@ module Network.MPD.Applicative.Internal
     ) where
 
 import           Control.Applicative
-import           Control.Concurrent.Async (Async)
+import           Control.Concurrent.Async.Lifted (Async, withAsync, wait)
 import           Control.Monad
+import           Control.Monad.Trans.Control (StM)
 import           Data.ByteString.Char8 (ByteString)
 
 import           Network.MPD.Core hiding (getResponse)
@@ -101,16 +103,19 @@ runCommand (Command p c) = do
             xs  -> unlines ("command_list_ok_begin" : xs)
                    ++ "command_list_end"
 
-runCommandAsync :: MonadMPDAsync m => Command a -> m (Async a)
-runCommandAsync (Command p c) = do
-    asyncR <- Core.getResponseAsync command
-    asyncMPD $ do
-      r <- waitMPD asyncR
-      case runParser p r of
-          Left err      -> throwError (Unexpected err)
-          Right (a, []) -> return a
-          Right (_, xs) -> throwError (Unexpected $ "superfluous input: " ++ show xs)
+runCommandAsync :: MonadMPDAsync m
+                => Command a -> (Async (StM m a) -> m b) -> m b
+runCommandAsync (Command p c) cb =
+    Core.getResponseAsync command (\asyncR -> go asyncR `withAsync` cb)
     where
+        go asyncR = do
+            r <- wait asyncR
+            case runParser p r of
+                Left err      -> throwError (Unexpected err)
+                Right (a, []) -> return a
+                Right (_, xs) -> throwError (Unexpected $
+                                   "superfluous input: " ++ show xs)
+
         command = case c of
             [x] -> x
             xs  -> unlines ("command_list_ok_begin" : xs)

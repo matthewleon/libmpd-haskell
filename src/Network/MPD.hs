@@ -20,8 +20,7 @@ To use the library, do:
 
 module Network.MPD (
     -- * Basic data types
-    MonadMPD, MonadMPDAsync(asyncMPD, waitMPD),
-    MPD, MPDError(..), ACKType(..), Response,
+    MonadMPD, MonadMPDAsync, MPD, MPDError(..), ACKType(..), Response,
 
     Host, Port, Password,
     -- * Connections

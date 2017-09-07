@@ -1,5 +1,5 @@
 {-# LANGUAGE FlexibleContexts, GeneralizedNewtypeDeriving, OverloadedStrings #-}
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ScopedTypeVariables, MultiParamTypeClasses, TypeFamilies #-}
 
 -- | Module    : Network.MPD.Core
 -- Copyright   : (c) Ben Sinclair 2005-2009, Joachim Fasting 2010
@@ -27,14 +27,16 @@ import           Network.MPD.Core.Error
 
 import           Data.Char (isDigit)
 import           Control.Applicative (Applicative(..), (<$>), (<*))
-import           Control.Concurrent.Async (Async, async, wait)
+import           Control.Concurrent.Async.Lifted (Async, withAsync, wait)
 import           Control.Concurrent.STM.TVar (TVar, readTVarIO, writeTVar, newTVarIO)
 import qualified Control.Exception as E
-import           Control.Exception.Safe (catch, catchIO, catchAny, handle, handleIO, throw)
+import           Control.Exception.Safe (catch, catchIO, catchAny, throw)
 import           Control.Monad (ap, unless, void)
+import           Control.Monad.Base (MonadBase)
 import           Control.Monad.Error (ErrorT(..), MonadError(..))
 import           Control.Monad.Reader (MonadIO(..), ReaderT(..), ask, asks)
 import           Control.Monad.STM (atomically)
+import           Control.Monad.Trans.Control (MonadBaseControl(..))
 import qualified Data.Foldable as F
 import           Network (PortID(..), withSocketsDo, connectTo)
 import           System.IO (Handle, hPutStrLn, hReady, hClose, hFlush)
@@ -72,11 +74,16 @@ type Port = Integer
 newtype MPD a =
     MPD { runMPD :: ErrorT MPDError
                      (ReaderT MPDEnv IO) a
-        } deriving (Functor, Monad, MonadIO, MonadError MPDError)
+        } deriving (Functor, Monad, MonadIO, MonadBase IO, MonadError MPDError)
 
 instance Applicative MPD where
     (<*>) = ap
     pure  = return
+
+instance MonadBaseControl IO MPD where
+  type StM MPD a = Either MPDError a
+  liftBaseWith f = MPD $ liftBaseWith $ \q -> f (q . runMPD)
+  restoreM = MPD . restoreM
 
 instance MonadMPD MPD where
     open  = mpdOpen
@@ -87,8 +94,6 @@ instance MonadMPD MPD where
     getVersion  = readEnvTVar envVersion
 
 instance MonadMPDAsync MPD where
-    asyncMPD  = mpdAsync
-    waitMPD   = mpdWait
     sendAsync = mpdSendAsync
 
 data MPDEnv =
@@ -209,35 +214,25 @@ getLines handle acc = do
         then (return . reverse) (l:acc)
         else getLines handle (l:acc)
 
-mpdAsync :: MPD a -> MPD (Async a)
-mpdAsync x = MPD $ liftIO . async . unwrap =<< ask
-    where
-    unwrap = runReaderT $ either throw return =<< runErrorT (runMPD x)
-
--- wait on an async, lifting all errors to MonadError MPDError
-mpdWait :: Async a -> MPD a
-mpdWait = MPD
-        . handle throwError
-        . handleIO (throwError . ConnectionError)
-        . liftIO
-        . wait
-
 -- TODO: recover from ConnectionError after async fork?
 -- Idea: if we moved that code the getResponse, then this and mpdSend would be
 -- much more similar!
-mpdSendAsync :: String -> MPD (Async [ByteString])
-mpdSendAsync str = MPD $ do
-    tmHandle <- asks envHandle
+mpdSendAsync :: String -> (Async (Either MPDError [ByteString]) -> MPD a) -> MPD a
+mpdSendAsync str cb = do
+    tmHandle <- MPD $ asks envHandle
     handle <- maybe (throwError NoMPD) return =<< liftIO (readTVarIO tmHandle)
-    liftIO . unless (null str) $ (do
+    liftErrs . unless (null str) $ (do
           B.hPutStrLn handle (UTF8.fromString str)
-          liftIO $ hFlush handle
+          hFlush handle
         ) `catchIO` handleErr tmHandle
-    liftIO . async $ getLines handle [] `catchIO` handleErr tmHandle
+    liftErrs (getLines handle [] `catchIO` handleErr tmHandle) `withAsync` cb
     where
         handleErr tmHandle err = do
           atomically $ writeTVar tmHandle Nothing
           throw $ ConnectionError err
+
+        liftErrs :: IO a -> MPD a
+        liftErrs = liftIO . (`catch` throwError)
 
 -- | Re-connect and retry for these Exceptions.
 isRetryable :: E.IOException -> Bool
@@ -258,28 +253,21 @@ kill = void $ send "kill"
 
 -- | Send a command to the MPD server and return the result.
 getResponse :: (MonadMPD m) => String -> m [ByteString]
-getResponse cmd = (send cmd >>= parseResponse) `catchError` sendpw
-    where
-        sendpw e@(ACK Auth _) = do
-            pw <- getPassword
-            if null pw then throwError e
-                else send ("password " ++ pw) >>= parseResponse
-                  >> send cmd >>= parseResponse
-        sendpw e =
-            throwError e
+getResponse cmd = (send cmd >>= parseResponse) `catchError` sendpw cmd
 
-getResponseAsync :: (MonadMPDAsync m) => String -> m (Async [ByteString])
-getResponseAsync cmd = do
-  asyncResp <- sendAsync cmd
-  asyncMPD $ (waitMPD asyncResp >>= parseResponse) `catchError` sendpw
-    where
-        sendpw e@(ACK Auth _) = do
-            pw <- getPassword
-            if null pw then throwError e
-                else send ("password " ++ pw) >>= parseResponse
-                  >> send cmd >>= parseResponse
-        sendpw e =
-            throwError e
+getResponseAsync :: MonadMPDAsync m
+                 => String -> (Async (StM m [ByteString]) -> m a) -> m a
+getResponseAsync cmd cb = sendAsync cmd (\asyncResp ->
+  ((wait asyncResp >>= parseResponse) `catchError` sendpw cmd) `withAsync` cb
+  )
+
+sendpw :: MonadMPD m => String -> MPDError -> m [ByteString]
+sendpw cmd e@(ACK Auth _) = do
+    pw <- getPassword
+    if null pw then throwError e
+        else send ("password " ++ pw) >>= parseResponse
+          >> send cmd >>= parseResponse
+sendpw _   e = throwError e
 
 -- Consume response and return a Response.
 parseResponse :: (MonadError MPDError m) => [ByteString] -> m [ByteString]
