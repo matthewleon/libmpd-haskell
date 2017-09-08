@@ -27,7 +27,7 @@ import           Network.MPD.Core.Error
 
 import           Data.Char (isDigit)
 import           Control.Applicative (Applicative(..), (<$>), (<*))
-import           Control.Concurrent.Lifted (ThreadId, fork)
+import           Control.Concurrent (ThreadId, forkIO)
 import           Control.Concurrent.STM.TVar (TVar, readTVarIO, writeTVar, newTVarIO)
 import qualified Control.Exception as E
 import           Control.Exception.Safe (catch, catchIO, catchAny, throw)
@@ -207,22 +207,16 @@ mpdSend str = send' `catchError` handler
                 >>= either (\err -> clearHandle
                                  >> throwError (ConnectionError err)) return
 
-getLines :: Handle -> [ByteString] -> IO [ByteString]
-getLines handle acc = do
-    l <- B.hGetLine handle
-    if "OK" `isPrefixOf` l || "ACK" `isPrefixOf` l
-        then (return . reverse) (l:acc)
-        else getLines handle (l:acc)
-
 mpdSendAsync :: String -> ([ByteString] -> MPD ()) -> MPD ThreadId
 mpdSendAsync str cb = do
-    tmHandle <- MPD $ asks envHandle
+    env@MPDEnv{envHandle = tmHandle} <- MPD ask
     handle <- maybe (throwError NoMPD) return =<< liftIO (readTVarIO tmHandle)
     liftErrs . unless (null str) $ (do
           B.hPutStrLn handle (UTF8.fromString str)
           hFlush handle
         ) `catchIO` handleErr tmHandle
-    fork $ liftErrs (getLines handle [] `catchIO` handleErr tmHandle) >>= cb
+    liftIO . forkIO . lower env $
+        cb =<< liftIO (getLines handle [] `catchIO` handleErr tmHandle)
     where
         handleErr tmHandle err = do
           atomically $ writeTVar tmHandle Nothing
@@ -230,6 +224,18 @@ mpdSendAsync str cb = do
 
         liftErrs :: IO a -> MPD a
         liftErrs = liftIO . (`catch` throwError)
+
+        lower :: MPDEnv -> MPD () -> IO ()
+        lower env x = either throw return =<<
+            runReaderT (runErrorT $ runMPD x) env
+
+getLines :: Handle -> [ByteString] -> IO [ByteString]
+getLines handle acc = do
+    l <- B.hGetLine handle
+    if "OK" `isPrefixOf` l || "ACK" `isPrefixOf` l
+        then (return . reverse) (l:acc)
+        else getLines handle (l:acc)
+
 
 -- | Re-connect and retry for these Exceptions.
 isRetryable :: E.IOException -> Bool
