@@ -32,11 +32,9 @@ import           Control.Concurrent.STM.TVar (TVar, readTVarIO, writeTVar, newTV
 import qualified Control.Exception as E
 import           Control.Exception.Safe (catch, catchIO, catchAny, throw)
 import           Control.Monad (ap, unless, void)
-import           Control.Monad.Base (MonadBase)
 import           Control.Monad.Error (ErrorT(..), MonadError(..))
 import           Control.Monad.Reader (MonadIO(..), ReaderT(..), ask, asks)
 import           Control.Monad.STM (atomically)
-import           Control.Monad.Trans.Control (MonadBaseControl(..))
 import qualified Data.Foldable as F
 import           Network (PortID(..), withSocketsDo, connectTo)
 import           System.IO (Handle, hPutStrLn, hReady, hClose, hFlush)
@@ -74,16 +72,11 @@ type Port = Integer
 newtype MPD a =
     MPD { runMPD :: ErrorT MPDError
                      (ReaderT MPDEnv IO) a
-        } deriving (Functor, Monad, MonadIO, MonadBase IO, MonadError MPDError)
+        } deriving (Functor, Monad, MonadIO, MonadError MPDError)
 
 instance Applicative MPD where
     (<*>) = ap
     pure  = return
-
-instance MonadBaseControl IO MPD where
-  type StM MPD a = Either MPDError a
-  liftBaseWith f = MPD $ liftBaseWith $ \q -> f (q . runMPD)
-  restoreM = MPD . restoreM
 
 instance MonadMPD MPD where
     open  = mpdOpen

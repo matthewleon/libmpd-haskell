@@ -34,7 +34,7 @@ module Network.MPD.Applicative.Internal
     ) where
 
 import           Control.Applicative
-import           Control.Concurrent.Lifted (ThreadId)
+import           Control.Concurrent (ThreadId)
 import           Control.Monad
 import           Data.ByteString.Char8 (ByteString)
 

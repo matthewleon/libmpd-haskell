@@ -20,8 +20,7 @@ module Network.MPD.Commands.Status
     , status
     ) where
 
-import           Control.Concurrent.Lifted (ThreadId)
-import           Control.Monad.Trans.Control (StM)
+import           Control.Concurrent (ThreadId)
 
 import qualified Network.MPD.Applicative.Internal as A
 import qualified Network.MPD.Applicative.Status as A

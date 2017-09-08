@@ -10,7 +10,7 @@
 
 module Network.MPD.Core.Class where
 
-import           Control.Concurrent.Lifted (ThreadId)
+import           Control.Concurrent (ThreadId)
 import           Data.ByteString (ByteString)
 
 import           Network.MPD.Core.Error (MPDError)
@@ -38,6 +38,4 @@ class (Monad m, MonadError MPDError m) => MonadMPD m where
 
 class MonadMPD m => MonadMPDAsync m where
     -- | Send a string to the server and asynchronously handle its response.
-    --sendAsync :: String -> (Async (StM m [ByteString]) -> m a) -> m a
-    -- return threadID as well?
     sendAsync :: String -> ([ByteString] -> m ()) -> m ThreadId
