@@ -27,7 +27,7 @@ import           Network.MPD.Core.Error
 
 import           Data.Char (isDigit)
 import           Control.Applicative (Applicative(..), (<$>), (<*))
-import           Control.Concurrent.Async.Lifted (Async, withAsync, wait)
+import           Control.Concurrent.Lifted (ThreadId, fork)
 import           Control.Concurrent.STM.TVar (TVar, readTVarIO, writeTVar, newTVarIO)
 import qualified Control.Exception as E
 import           Control.Exception.Safe (catch, catchIO, catchAny, throw)
@@ -214,10 +214,7 @@ getLines handle acc = do
         then (return . reverse) (l:acc)
         else getLines handle (l:acc)
 
--- TODO: recover from ConnectionError after async fork?
--- Idea: if we moved that code the getResponse, then this and mpdSend would be
--- much more similar!
-mpdSendAsync :: String -> (Async (Either MPDError [ByteString]) -> MPD a) -> MPD a
+mpdSendAsync :: String -> ([ByteString] -> MPD ()) -> MPD ThreadId
 mpdSendAsync str cb = do
     tmHandle <- MPD $ asks envHandle
     handle <- maybe (throwError NoMPD) return =<< liftIO (readTVarIO tmHandle)
@@ -225,7 +222,7 @@ mpdSendAsync str cb = do
           B.hPutStrLn handle (UTF8.fromString str)
           hFlush handle
         ) `catchIO` handleErr tmHandle
-    liftErrs (getLines handle [] `catchIO` handleErr tmHandle) `withAsync` cb
+    fork $ liftErrs (getLines handle [] `catchIO` handleErr tmHandle) >>= cb
     where
         handleErr tmHandle err = do
           atomically $ writeTVar tmHandle Nothing
@@ -256,10 +253,10 @@ getResponse :: (MonadMPD m) => String -> m [ByteString]
 getResponse cmd = (send cmd >>= parseResponse) `catchError` sendpw cmd
 
 getResponseAsync :: MonadMPDAsync m
-                 => String -> (Async (StM m [ByteString]) -> m a) -> m a
-getResponseAsync cmd cb = sendAsync cmd (\asyncResp ->
-  ((wait asyncResp >>= parseResponse) `catchError` sendpw cmd) `withAsync` cb
-  )
+                 => String -> ([ByteString] -> m ()) -> m ThreadId
+getResponseAsync cmd cb = sendAsync cmd (\response ->
+        (parseResponse response `catchError` sendpw cmd) >>= cb
+    )
 
 sendpw :: MonadMPD m => String -> MPDError -> m [ByteString]
 sendpw cmd e@(ACK Auth _) = do

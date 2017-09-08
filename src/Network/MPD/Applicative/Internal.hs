@@ -34,9 +34,8 @@ module Network.MPD.Applicative.Internal
     ) where
 
 import           Control.Applicative
-import           Control.Concurrent.Async.Lifted (Async, withAsync, wait)
+import           Control.Concurrent.Lifted (ThreadId)
 import           Control.Monad
-import           Control.Monad.Trans.Control (StM)
 import           Data.ByteString.Char8 (ByteString)
 
 import           Network.MPD.Core hiding (getResponse)
@@ -103,21 +102,14 @@ runCommand (Command p c) = do
             xs  -> unlines ("command_list_ok_begin" : xs)
                    ++ "command_list_end"
 
-runCommandAsync :: MonadMPDAsync m
-                => Command a -> (Async (StM m a) -> m b) -> m b
+runCommandAsync :: MonadMPDAsync m => Command a -> (a -> m ()) -> m ThreadId
 runCommandAsync (Command p c) cb =
-    Core.getResponseAsync command (\asyncR -> go asyncR `withAsync` cb)
+    Core.getResponseAsync command $ \resp -> case runParser p resp of
+        Left err      -> throwError (Unexpected err)
+        Right (a, []) -> cb a
+        Right (_, xs) -> throwError (Unexpected $ "superfluous input: " ++ show xs)
     where
-        go asyncR = do
-            r <- wait asyncR
-            case runParser p r of
-                Left err      -> throwError (Unexpected err)
-                Right (a, []) -> return a
-                Right (_, xs) -> throwError (Unexpected $
-                                   "superfluous input: " ++ show xs)
-
         command = case c of
             [x] -> x
             xs  -> unlines ("command_list_ok_begin" : xs)
                    ++ "command_list_end"
-

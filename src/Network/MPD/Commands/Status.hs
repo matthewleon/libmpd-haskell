@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
-
 {- |
 Module      : Network.MPD.Commands.Status
 Copyright   : (c) Ben Sinclair 2005-2009, Joachim Fasting 2012
@@ -22,7 +20,7 @@ module Network.MPD.Commands.Status
     , status
     ) where
 
-import           Control.Concurrent.Async.Lifted (Async)
+import           Control.Concurrent.Lifted (ThreadId)
 import           Control.Monad.Trans.Control (StM)
 
 import qualified Network.MPD.Applicative.Internal as A
@@ -52,7 +50,7 @@ idle :: MonadMPD m => [Subsystem] -> m [Subsystem]
 idle = A.runCommand . A.idle
 
 idleAsync :: MonadMPDAsync m
-          => [Subsystem] -> (Async (StM m [Subsystem]) -> m a) -> m a
+          => [Subsystem] -> ([Subsystem] -> m ()) -> m ThreadId
 idleAsync subsystems = A.runCommandAsync (A.idle subsystems)
 
 -- | Cancel 'idle'.

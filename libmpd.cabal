@@ -51,7 +51,7 @@ Library
 
         -- Additional dependencies
       , data-default-class >= 0.0.1 && < 1
-      , lifted-async
+      , lifted-base
       , monad-control >= 1 && < 1.1
       , network >= 2.1 && < 3
       , safe-exceptions >= 0.1 && < 0.2
@@ -124,7 +124,6 @@ Test-Suite specs
       , bytestring
       , containers
       , filepath
-      , lifted-async
       , mtl
       , old-locale
       , stm
@@ -133,6 +132,7 @@ Test-Suite specs
 
         -- Additional dependencies
       , data-default-class
+      , lifted-base
       , monad-control
       , network
       , safe-exceptions
