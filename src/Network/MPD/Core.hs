@@ -1,5 +1,5 @@
 {-# LANGUAGE FlexibleContexts, GeneralizedNewtypeDeriving, OverloadedStrings #-}
-{-# LANGUAGE ScopedTypeVariables, MultiParamTypeClasses, TypeFamilies #-}
+{-# LANGUAGE ScopedTypeVariables, LambdaCase #-}
 
 -- | Module    : Network.MPD.Core
 -- Copyright   : (c) Ben Sinclair 2005-2009, Joachim Fasting 2010
@@ -27,7 +27,7 @@ import           Network.MPD.Core.Error
 
 import           Data.Char (isDigit)
 import           Control.Applicative (Applicative(..), (<$>), (<*))
-import           Control.Concurrent (forkIO)
+import           Control.Concurrent (ThreadId, forkIO, killThread)
 import           Control.Concurrent.STM.TVar (TVar, readTVarIO, writeTVar, newTVarIO)
 import qualified Control.Exception as E
 import           Control.Exception.Safe (catch, catchIO, catchAny, throw)
@@ -95,6 +95,7 @@ data MPDEnv =
              , envHandle   :: TVar (Maybe Handle)
              , envPassword :: TVar String
              , envVersion  :: TVar (Int, Int, Int)
+             , envAsyncCmd :: TVar (Maybe (ThreadId, String))
            }
 
 readEnvTVar :: (MPDEnv -> TVar a) -> MPD a
@@ -123,7 +124,8 @@ withMPDEx host port pw x = withSocketsDo $ do
       tHandle <- newTVarIO Nothing
       tPassword <- newTVarIO pw
       tVersion <- newTVarIO (0, 0, 0)
-      return $ MPDEnv host port tHandle tPassword tVersion
+      tAsyncCmd <- newTVarIO Nothing
+      return $ MPDEnv host port tHandle tPassword tVersion tAsyncCmd
 
 -- TODO: make version that runs in IO for mpdSendAsync
 mpdOpen :: MPD ()
@@ -192,27 +194,51 @@ mpdSend str = send' `catchError` handler
           | otherwise = throwError err
 
         send' :: MPD [ByteString]
-        send' = maybe (throwError NoMPD) go =<< readEnvTVar envHandle
+        send' = do
+            readEnvTVar envAsyncCmd >>= \case
+                    Just (tid, cancelc) ->
+                        if str == cancelc
+                            then liftIO (killThread tid)
+                                 >> writeEnvTVar envAsyncCmd Nothing
+                            else void $ getResponse cancelc
+                    Nothing ->
+                        return ()
+            maybe (throwError NoMPD) go =<< readEnvTVar envHandle
 
-        go handle = (liftIO . tryIOError $ do
-            unless (null str) $ B.hPutStrLn handle (UTF8.fromString str) >> hFlush handle
-            getLines handle [])
-                >>= either (\err -> clearHandle
-                                 >> throwError (ConnectionError err)) return
+        go handle =
+            (liftIO . tryIOError $ do
+                unless (null str) $
+                    B.hPutStrLn handle (UTF8.fromString str) >> hFlush handle
+                getLines handle []
+            ) >>= either (\err -> clearHandle
+                               >> throwError (ConnectionError err)) return
 
 mpdSendAsync :: String -> String -> ([ByteString] -> MPD ()) -> MPD ()
 mpdSendAsync str cancelStr cb = do
-    env@MPDEnv{envHandle = tmHandle} <- MPD ask
+    env@MPDEnv{envHandle = tmHandle, envAsyncCmd = tmAsyncCmd} <- MPD ask
+    liftIO (readTVarIO tmAsyncCmd) >>= \case
+        Just (tid, cancelc) ->
+            if str == cancelc
+               then throwError . Custom $
+                    "issuing cancellation command " ++ str ++ " asynchronously."
+               else void $ getResponse cancelc
+        Nothing -> return ()
     handle <- maybe (throwError NoMPD) return =<< liftIO (readTVarIO tmHandle)
     liftErrs . unless (null str) $ (do
           B.hPutStrLn handle (UTF8.fromString str)
           hFlush handle
-        ) `catchIO` handleErr tmHandle
-    void . liftIO . forkIO . lower env $
-        cb =<< liftIO (getLines handle [] `catchIO` handleErr tmHandle)
+        ) `catchIO` handleErr tmHandle tmAsyncCmd
+    tid <- liftIO . forkIO . lower env $ do
+        lines <- liftIO (
+            getLines handle [] `catchIO` handleErr tmHandle tmAsyncCmd
+          )
+        liftIO . atomically $ writeTVar tmAsyncCmd Nothing
+        cb lines
+    liftIO . atomically . writeTVar tmAsyncCmd $ Just (tid, cancelStr)
     where
-        handleErr tmHandle err = do
+        handleErr tmHandle tmAsyncCmd err = do
           atomically $ writeTVar tmHandle Nothing
+                    >> writeTVar tmAsyncCmd Nothing
           throw $ ConnectionError err
 
         liftErrs :: IO a -> MPD a

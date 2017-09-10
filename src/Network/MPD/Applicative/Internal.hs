@@ -88,7 +88,7 @@ data Command a = Command {
 -- combined request of an arbitrary number of commands,
 -- and a cancellation command.
 data AsyncCommand a = AsyncCommand {
-     asyncCommandParser  :: Parser a
+     asyncCommand        :: Parser a
    , asyncCommandRequest :: [String]
    , asyncCommandCancel  :: String
    } deriving Functor
