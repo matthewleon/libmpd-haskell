@@ -27,7 +27,7 @@ import           Network.MPD.Core.Error
 
 import           Data.Char (isDigit)
 import           Control.Applicative (Applicative(..), (<$>), (<*))
-import           Control.Concurrent (ThreadId, forkIO)
+import           Control.Concurrent (forkIO)
 import           Control.Concurrent.STM.TVar (TVar, readTVarIO, writeTVar, newTVarIO)
 import qualified Control.Exception as E
 import           Control.Exception.Safe (catch, catchIO, catchAny, throw)
@@ -200,15 +200,15 @@ mpdSend str = send' `catchError` handler
                 >>= either (\err -> clearHandle
                                  >> throwError (ConnectionError err)) return
 
-mpdSendAsync :: String -> ([ByteString] -> MPD ()) -> MPD ThreadId
-mpdSendAsync str cb = do
+mpdSendAsync :: String -> String -> ([ByteString] -> MPD ()) -> MPD ()
+mpdSendAsync str cancelStr cb = do
     env@MPDEnv{envHandle = tmHandle} <- MPD ask
     handle <- maybe (throwError NoMPD) return =<< liftIO (readTVarIO tmHandle)
     liftErrs . unless (null str) $ (do
           B.hPutStrLn handle (UTF8.fromString str)
           hFlush handle
         ) `catchIO` handleErr tmHandle
-    liftIO . forkIO . lower env $
+    void . liftIO . forkIO . lower env $
         cb =<< liftIO (getLines handle [] `catchIO` handleErr tmHandle)
     where
         handleErr tmHandle err = do
@@ -252,8 +252,8 @@ getResponse :: (MonadMPD m) => String -> m [ByteString]
 getResponse cmd = (send cmd >>= parseResponse) `catchError` sendpw cmd
 
 getResponseAsync :: MonadMPDAsync m
-                 => String -> ([ByteString] -> m ()) -> m ThreadId
-getResponseAsync cmd cb = sendAsync cmd (\response ->
+                 => String -> String -> ([ByteString] -> m ()) -> m ()
+getResponseAsync cmd cancelc cb = sendAsync cmd cancelc (\response ->
         (parseResponse response `catchError` sendpw cmd) >>= cb
     )
 

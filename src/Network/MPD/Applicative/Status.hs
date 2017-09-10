@@ -16,6 +16,7 @@ module Network.MPD.Applicative.Status
     ( clearError
     , currentSong
     , idle
+    , idleAsync
     , noidle
     , status
     , stats
@@ -62,6 +63,14 @@ takeSubsystems = mapM f . toAssocList
 -- When active, only 'noidle' commands are allowed.
 idle :: [Subsystem] -> Command [Subsystem]
 idle ss = Command (liftParser takeSubsystems) c
+    where
+        c = ["idle" <@> foldr (<++>) (Args []) ss]
+
+-- | Wait until there is noteworthy change in one or more of MPD's
+-- subsystems.
+-- When active, only 'noidle' commands are allowed.
+idleAsync :: [Subsystem] -> AsyncCommand [Subsystem]
+idleAsync ss = AsyncCommand (liftParser takeSubsystems) c "noidle"
     where
         c = ["idle" <@> foldr (<++>) (Args []) ss]
 

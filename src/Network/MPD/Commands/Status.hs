@@ -49,8 +49,8 @@ idle :: MonadMPD m => [Subsystem] -> m [Subsystem]
 idle = A.runCommand . A.idle
 
 idleAsync :: MonadMPDAsync m
-          => [Subsystem] -> ([Subsystem] -> m ()) -> m ThreadId
-idleAsync subsystems = A.runCommandAsync (A.idle subsystems)
+          => [Subsystem] -> ([Subsystem] -> m ()) -> m ()
+idleAsync subsystems = A.runAsyncCommand (A.idleAsync subsystems)
 
 -- | Cancel 'idle'.
 noidle :: MonadMPD m => m ()

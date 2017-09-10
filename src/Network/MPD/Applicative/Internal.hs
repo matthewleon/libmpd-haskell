@@ -30,11 +30,11 @@ module Network.MPD.Applicative.Internal
     , unexpected
     , Command(..)
     , runCommand
-    , runCommandAsync
+    , AsyncCommand(..)
+    , runAsyncCommand
     ) where
 
 import           Control.Applicative
-import           Control.Concurrent (ThreadId)
 import           Control.Monad
 import           Data.ByteString.Char8 (ByteString)
 
@@ -84,6 +84,15 @@ data Command a = Command {
    , commandRequest :: [String]
    } deriving Functor
 
+-- | An async command, comprising a parser for the responses, a
+-- combined request of an arbitrary number of commands,
+-- and a cancellation command.
+data AsyncCommand a = AsyncCommand {
+     asyncCommandParser  :: Parser a
+   , asyncCommandRequest :: [String]
+   , asyncCommandCancel  :: String
+   } deriving Functor
+
 instance Applicative Command where
     pure a = Command (pure a) []
     (Command p1 c1) <*> (Command p2 c2) = Command (p1 <*> p2) (c1 ++ c2)
@@ -102,9 +111,9 @@ runCommand (Command p c) = do
             xs  -> unlines ("command_list_ok_begin" : xs)
                    ++ "command_list_end"
 
-runCommandAsync :: MonadMPDAsync m => Command a -> (a -> m ()) -> m ThreadId
-runCommandAsync (Command p c) cb =
-    Core.getResponseAsync command $ \resp -> case runParser p resp of
+runAsyncCommand :: MonadMPDAsync m => AsyncCommand a -> (a -> m ()) -> m ()
+runAsyncCommand (AsyncCommand p c cancelc) cb =
+    Core.getResponseAsync command cancelc $ \resp -> case runParser p resp of
         Left err      -> throwError (Unexpected err)
         Right (a, []) -> cb a
         Right (_, xs) -> throwError (Unexpected $ "superfluous input: " ++ show xs)
